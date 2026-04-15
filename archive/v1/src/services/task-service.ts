@@ -1,19 +1,18 @@
 import { TFile } from "obsidian";
 import { CONTROLLED_BLOCKS } from "../constants";
-import type NexusCommandPluginV11 from "../plugin-v11";
+import type NexusCommandPlugin from "../main";
 import type { ManagedTask, TaskBlockType } from "../types";
 import { appendToBlock, readBlock, replaceBlock } from "../utils/blocks";
 import { createTaskId } from "../utils/date";
 import { ensureMdExtension } from "../utils/paths";
-import { assertSafeMarkdownPath } from "../utils/safe-write-paths";
 import { parseTaskLines, renderTaskLine, toggleTaskLine } from "../utils/tasks";
 import { ensureMarkdownFile } from "../utils/vault";
-import { DailyNoteServiceV11 } from "./daily-note-service-v11";
+import { DailyNoteService } from "./daily-note-service";
 
-export class TaskServiceV11 {
+export class TaskService {
   constructor(
-    private readonly plugin: NexusCommandPluginV11,
-    private readonly dailyNoteService: DailyNoteServiceV11
+    private readonly plugin: NexusCommandPlugin,
+    private readonly dailyNoteService: DailyNoteService
   ) {}
 
   async listLifeTasks(): Promise<ManagedTask[]> {
@@ -35,7 +34,6 @@ export class TaskServiceV11 {
     if (!file) {
       throw new Error("无法定位日常任务文件。");
     }
-
     const suffix = sourceNoteName ? ` [来源：[[${sourceNoteName}]]]` : "";
     const line = renderTaskLine({
       text: `${normalizedText}${suffix}`,
@@ -112,9 +110,7 @@ export class TaskServiceV11 {
 
   private async resolveLifeTaskFile(create: boolean): Promise<TFile | null> {
     if (this.plugin.settings.lifeTaskTarget === "global-file") {
-      const targetPath = ensureMdExtension(
-        assertSafeMarkdownPath(this.plugin.app, this.plugin.settings.globalTodoPath, "全局待办路径")
-      );
+      const targetPath = ensureMdExtension(this.plugin.settings.globalTodoPath);
       const existing = this.plugin.app.vault.getAbstractFileByPath(targetPath);
       if (existing instanceof TFile) {
         return existing;

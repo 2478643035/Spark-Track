@@ -1,13 +1,11 @@
 import { normalizePath, TFile } from "obsidian";
 import { CONTROLLED_BLOCKS, TRACKER_STATUS_META } from "../constants";
-import type NexusCommandPluginV11 from "../plugin-v11";
+import type NexusCommandPlugin from "../main";
 import type {
-  AgedBlocker,
   GoalIndexFrontmatter,
   GoalSummary,
   GoalTrackerStatus,
   HeatmapCell,
-  NexusSuggestion,
   TrackerEntry
 } from "../types";
 import { readBlock, replaceBlock } from "../utils/blocks";
@@ -15,23 +13,19 @@ import {
   createTrackerId,
   formatTimelineLabel,
   getDateStamp,
-  getDaysSince,
   getTimeStamp,
   trackerAnchor
 } from "../utils/date";
 import { parseFrontmatter, replaceFrontmatter } from "../utils/frontmatter";
 import { basenameWithoutExtension, sanitizeFileName } from "../utils/paths";
-import { assertSafeFolderPath } from "../utils/safe-write-paths";
 import { parseTaskLines } from "../utils/tasks";
 import { ensureFolder, ensureMarkdownFile } from "../utils/vault";
 
-export class GoalServiceV11 {
-  constructor(private readonly plugin: NexusCommandPluginV11) {}
+export class GoalService {
+  constructor(private readonly plugin: NexusCommandPlugin) {}
 
   async listGoals(): Promise<GoalSummary[]> {
-    const rootFolder = normalizePath(
-      assertSafeFolderPath(this.plugin.app, this.plugin.settings.goalRootFolder, "目标根目录")
-    );
+    const rootFolder = normalizePath(this.plugin.settings.goalRootFolder);
 
     return Promise.all(
       this.plugin.app.vault
@@ -51,10 +45,7 @@ export class GoalServiceV11 {
       return;
     }
 
-    await ensureFolder(
-      this.plugin.app,
-      assertSafeFolderPath(this.plugin.app, this.plugin.settings.goalRootFolder, "目标根目录")
-    );
+    await ensureFolder(this.plugin.app, this.plugin.settings.goalRootFolder);
 
     const folderPath = this.createUniqueGoalFolder(displayName);
     await ensureFolder(this.plugin.app, folderPath);
@@ -87,7 +78,6 @@ export class GoalServiceV11 {
     if (!parsed) {
       throw new Error("目标索引文件损坏。");
     }
-
     const now = new Date();
     const trackerId = createTrackerId(now);
     const date = getDateStamp(now);
@@ -139,7 +129,6 @@ export class GoalServiceV11 {
       if (!parsed) {
         return content;
       }
-
       const nextFrontmatter: GoalIndexFrontmatter = {
         ...parsed.frontmatter,
         tracker_data: parsed.frontmatter.tracker_data.map((entry) =>
@@ -159,7 +148,6 @@ export class GoalServiceV11 {
       if (!parsed) {
         return content;
       }
-
       const nextFrontmatter: GoalIndexFrontmatter = {
         ...parsed.frontmatter,
         status: "archived"
@@ -167,93 +155,6 @@ export class GoalServiceV11 {
 
       return this.renderGoalIndex(content, nextFrontmatter);
     });
-  }
-
-  buildAgedBlockers(goals: GoalSummary[]): AgedBlocker[] {
-    return goals
-      .filter((goal) => goal.status === "active")
-      .flatMap((goal) =>
-        goal.trackerData
-          .filter((entry) => entry.status === "red" && !entry.resolved_by)
-          .map((entry) => {
-            const daysOpen = getDaysSince(entry.date);
-            return {
-              trackerId: entry.id,
-              goalIndexPath: goal.indexPath,
-              goalName: goal.name,
-              date: entry.date,
-              daysOpen,
-              severity: daysOpen >= 7 ? "hot" : "warm"
-            } satisfies AgedBlocker;
-          })
-      )
-      .sort((left, right) => right.daysOpen - left.daysOpen || left.goalName.localeCompare(right.goalName));
-  }
-
-  buildSuggestions(goals: GoalSummary[], blockers: AgedBlocker[]): NexusSuggestion[] {
-    const suggestions: NexusSuggestion[] = [];
-
-    for (const blocker of blockers) {
-      suggestions.push({
-        id: `blocker-${blocker.trackerId}`,
-        kind: "blocker",
-        title: `先处理「${blocker.goalName}」的卡点`,
-        detail: blocker.daysOpen === 0 ? "今天已经卡住，优先写下破局方案。" : `已卡 ${blocker.daysOpen} 天，先解决这个阻碍。`,
-        goalIndexPath: blocker.goalIndexPath,
-        blockerId: blocker.trackerId
-      });
-
-      if (suggestions.length >= 3) {
-        return suggestions;
-      }
-    }
-
-    const activeGoals = goals.filter((goal) => goal.status === "active");
-    for (const goal of activeGoals) {
-      const nextTask = goal.goalTasks.find((task) => !task.completed);
-      if (!nextTask) {
-        continue;
-      }
-
-      suggestions.push({
-        id: `task-${nextTask.id}`,
-        kind: "goal-task",
-        title: `推进「${goal.name}」`,
-        detail: nextTask.text,
-        goalIndexPath: goal.indexPath
-      });
-
-      if (suggestions.length >= 3) {
-        return suggestions;
-      }
-    }
-
-    const staleGoals = activeGoals
-      .map((goal) => {
-        const pivotDate = goal.latestActivityDate ?? goal.createdAt;
-        return {
-          goal,
-          quietDays: getDaysSince(pivotDate)
-        };
-      })
-      .filter(({ quietDays }) => quietDays >= 3)
-      .sort((left, right) => right.quietDays - left.quietDays);
-
-    for (const entry of staleGoals) {
-      suggestions.push({
-        id: `stale-${entry.goal.indexPath}`,
-        kind: "stale-goal",
-        title: `补一笔「${entry.goal.name}」的进度`,
-        detail: `${entry.quietDays} 天没有新的提交记录了。`,
-        goalIndexPath: entry.goal.indexPath
-      });
-
-      if (suggestions.length >= 3) {
-        break;
-      }
-    }
-
-    return suggestions;
   }
 
   private async readGoalSummary(file: TFile): Promise<GoalSummary | null> {
@@ -271,7 +172,8 @@ export class GoalServiceV11 {
       goalName: parsed.frontmatter.goal_name
     });
 
-    const latestTracker = parsed.frontmatter.tracker_data[parsed.frontmatter.tracker_data.length - 1] ?? null;
+    const latestTracker =
+      parsed.frontmatter.tracker_data[parsed.frontmatter.tracker_data.length - 1] ?? null;
 
     return {
       name: parsed.frontmatter.goal_name,
@@ -283,8 +185,6 @@ export class GoalServiceV11 {
       trackerData: parsed.frontmatter.tracker_data,
       goalTasks,
       latestStatus: latestTracker?.status ?? null,
-      latestTrackerId: latestTracker?.id ?? null,
-      latestActivityDate: latestTracker?.date ?? parsed.frontmatter.created_at,
       heatmap: this.buildHeatmap(parsed.frontmatter.tracker_data)
     };
   }
@@ -435,9 +335,7 @@ export class GoalServiceV11 {
   }
 
   private createUniqueGoalFolder(goalName: string): string {
-    const root = normalizePath(
-      assertSafeFolderPath(this.plugin.app, this.plugin.settings.goalRootFolder, "目标根目录")
-    );
+    const root = normalizePath(this.plugin.settings.goalRootFolder);
     const baseFolderName = sanitizeFileName(goalName) || "新目标";
     let candidate = `${root}/${baseFolderName}`;
     let suffix = 2;

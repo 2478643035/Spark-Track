@@ -2,12 +2,29 @@ import { MarkdownView, Notice, Plugin } from "obsidian";
 import { writable } from "svelte/store";
 import { CAPTURE_CHIPS, DEFAULT_SETTINGS, PLUGIN_ID, VIEW_TITLE, VIEW_TYPE } from "./constants";
 import "./styles.css";
+import { NexusSettingTab } from "./settings";
 import { DailyNoteService } from "./services/daily-note-service";
 import { GoalService } from "./services/goal-service";
 import { TaskService } from "./services/task-service";
-import { NexusSettingTab } from "./settings";
-import type { ManagedTask, NexusSettings, NexusState, NexusViewController } from "./types";
+import type {
+  CaptureEntry,
+  GoalSummary,
+  GoalTrackerStatus,
+  ManagedTask,
+  NexusSettings,
+  NexusState,
+  NexusViewController
+} from "./types";
+import { basenameWithoutExtension } from "./utils/paths";
+import { ensurePluginNoMediaShield } from "./utils/no-media";
+import { assertSafeFolderPath, assertSafeMarkdownPath, normalizeSettingsWritePaths } from "./utils/safe-write-paths";
 import { NexusCommandView } from "./view/nexus-view";
+
+type ParsedCaptureCommand =
+  | { type: "capture"; text: string }
+  | { type: "life-task"; text: string }
+  | { type: "goal"; name: string }
+  | { type: "tracker"; status: GoalTrackerStatus; goalName: string | null; note: string };
 
 function createInitialState(settings: NexusSettings): NexusState {
   return {
@@ -19,11 +36,18 @@ function createInitialState(settings: NexusSettings): NexusState {
     settings,
     lifeTasks: [],
     goalTasks: [],
-    goals: []
+    goals: [],
+    captures: [],
+    blockers: [],
+    suggestions: []
   };
 }
 
-export default class NexusCommandPlugin extends Plugin {
+function normalizeGoalToken(value: string, locale: string): string {
+  return value.normalize("NFKC").trim().toLocaleLowerCase(locale);
+}
+
+export default class NexusCommandPlugin extends Plugin implements NexusViewController {
   settings: NexusSettings = { ...DEFAULT_SETTINGS };
   readonly state = writable<NexusState>(createInitialState(DEFAULT_SETTINGS));
   latestState = createInitialState(DEFAULT_SETTINGS);
@@ -32,14 +56,22 @@ export default class NexusCommandPlugin extends Plugin {
   private taskService!: TaskService;
   private goalService!: GoalService;
   private refreshTimer: number | null = null;
+  private settingsCorrections: string[] = [];
 
   async onload(): Promise<void> {
     await this.loadSettings();
+
+    try {
+      await ensurePluginNoMediaShield(this.app, this.manifest.dir);
+    } catch (error) {
+      console.warn(`${PLUGIN_ID}: failed to create .nomedia shield`, error);
+    }
+
     this.dailyNoteService = new DailyNoteService(this);
     this.taskService = new TaskService(this, this.dailyNoteService);
     this.goalService = new GoalService(this);
 
-    this.registerView(VIEW_TYPE, (leaf) => new NexusCommandView(leaf, this as unknown as NexusViewController));
+    this.registerView(VIEW_TYPE, (leaf) => new NexusCommandView(leaf, this));
 
     this.addRibbonIcon("blocks", VIEW_TITLE, () => {
       void this.openView();
@@ -61,6 +93,10 @@ export default class NexusCommandPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("delete", () => this.scheduleRefresh()));
     this.registerEvent(this.app.vault.on("rename", () => this.scheduleRefresh()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.scheduleRefresh()));
+
+    if (this.settingsCorrections.length > 0) {
+      new Notice("检测到危险写入路径，已自动重置为安全默认目录。");
+    }
 
     await this.refreshState();
   }
@@ -94,10 +130,13 @@ export default class NexusCommandPlugin extends Plugin {
     });
 
     try {
-      const [lifeTasks, goals] = await Promise.all([
+      const [lifeTasks, goals, captures] = await Promise.all([
         this.taskService.listLifeTasks(),
-        this.goalService.listGoals()
+        this.goalService.listGoals(),
+        this.dailyNoteService.listRecentCaptures()
       ]);
+      const blockers = this.goalService.buildAgedBlockers(goals);
+      const suggestions = this.goalService.buildSuggestions(goals, blockers);
 
       this.pushState({
         ready: true,
@@ -108,7 +147,10 @@ export default class NexusCommandPlugin extends Plugin {
         settings: this.settings,
         lifeTasks,
         goalTasks: goals.filter((goal) => goal.status === "active").flatMap((goal) => goal.goalTasks),
-        goals
+        goals,
+        captures,
+        blockers,
+        suggestions
       });
     } catch (error) {
       console.error(`${PLUGIN_ID}: refresh failed`, error);
@@ -120,8 +162,72 @@ export default class NexusCommandPlugin extends Plugin {
     }
   }
 
-  async submitCapture(input: { text: string; chipIds: string[] }): Promise<void> {
-    await this.runAction(() => this.dailyNoteService.appendCapture(input.text, input.chipIds), "闪念写入失败。");
+  async submitCapture(input: {
+    text: string;
+    chipIds: string[];
+    selectedGoalIndexPath?: string | null;
+  }): Promise<void> {
+    await this.runAction(async () => {
+      const command = this.parseCaptureCommand(input.text);
+
+      if (command.type === "capture") {
+        await this.dailyNoteService.appendCapture(command.text, input.chipIds);
+        return;
+      }
+
+      if (command.type === "life-task") {
+        await this.taskService.createLifeTask(command.text, this.getActiveNoteName());
+        return;
+      }
+
+      if (command.type === "goal") {
+        await this.goalService.createGoal(command.name);
+        return;
+      }
+
+      const goal = this.resolveGoalTarget(command.goalName, input.selectedGoalIndexPath ?? null);
+      await this.goalService.submitTracker({
+        goalIndexPath: goal.indexPath,
+        status: command.status,
+        note: command.note
+      });
+    }, "闪念处理失败。");
+  }
+
+  async markCaptureKept(capture: CaptureEntry): Promise<void> {
+    await this.runAction(
+      () => this.dailyNoteService.updateCaptureStatus(capture, "kept"),
+      "闪念状态更新失败。"
+    );
+  }
+
+  async convertCaptureToLifeTask(capture: CaptureEntry): Promise<void> {
+    await this.runAction(async () => {
+      await this.taskService.createLifeTask(capture.text, basenameWithoutExtension(capture.sourcePath));
+      await this.dailyNoteService.updateCaptureStatus(capture, "life-task");
+    }, "闪念转日常任务失败。");
+  }
+
+  async convertCaptureToGoalTask(capture: CaptureEntry, goalIndexPath: string): Promise<void> {
+    await this.runAction(async () => {
+      await this.taskService.createGoalTask(goalIndexPath, capture.text);
+      await this.dailyNoteService.updateCaptureStatus(capture, "goal-task");
+    }, "闪念转目标任务失败。");
+  }
+
+  async convertCaptureToGoalTracker(input: {
+    capture: CaptureEntry;
+    goalIndexPath: string;
+    status: GoalTrackerStatus;
+  }): Promise<void> {
+    await this.runAction(async () => {
+      await this.goalService.submitTracker({
+        goalIndexPath: input.goalIndexPath,
+        status: input.status,
+        note: input.capture.text
+      });
+      await this.dailyNoteService.updateCaptureStatus(input.capture, `tracker-${input.status}`);
+    }, "闪念转进展失败。");
   }
 
   async createLifeTask(text: string): Promise<void> {
@@ -145,7 +251,7 @@ export default class NexusCommandPlugin extends Plugin {
 
   async submitGoalTracker(input: {
     goalIndexPath: string;
-    status: "yellow" | "green" | "red";
+    status: GoalTrackerStatus;
     note: string;
   }): Promise<void> {
     await this.runAction(() => this.goalService.submitTracker(input), "进度提交失败。");
@@ -165,16 +271,22 @@ export default class NexusCommandPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     const loaded = await this.loadData();
-    this.settings = {
+    const merged = {
       ...DEFAULT_SETTINGS,
       ...(loaded ?? {})
     };
+    const normalized = normalizeSettingsWritePaths(this.app, merged, DEFAULT_SETTINGS);
+    this.settings = normalized.settings;
+    this.settingsCorrections = normalized.correctedFields;
     this.pushState({
       settings: this.settings
     });
   }
 
   async saveSettings(): Promise<void> {
+    assertSafeFolderPath(this.app, this.settings.dailyNoteFolder, "Daily Note 文件夹");
+    assertSafeMarkdownPath(this.app, this.settings.globalTodoPath, "全局待办路径");
+    assertSafeFolderPath(this.app, this.settings.goalRootFolder, "目标根目录");
     await this.saveData(this.settings);
     this.pushState({
       settings: this.settings
@@ -215,8 +327,123 @@ export default class NexusCommandPlugin extends Plugin {
     }
   }
 
+  private parseCaptureCommand(rawInput: string): ParsedCaptureCommand {
+    const input = rawInput.trim();
+    if (!input.startsWith("/")) {
+      return {
+        type: "capture",
+        text: input
+      };
+    }
+
+    const [commandToken, ...restParts] = input.split(" ");
+    const command = commandToken.toLowerCase();
+    const rest = restParts.join(" ").trim();
+
+    if (!rest) {
+      throw new Error("命令需要带内容。");
+    }
+
+    if (command === "/note") {
+      return {
+        type: "capture",
+        text: rest
+      };
+    }
+
+    if (command === "/todo") {
+      return {
+        type: "life-task",
+        text: rest
+      };
+    }
+
+    if (command === "/goal") {
+      return {
+        type: "goal",
+        name: rest
+      };
+    }
+
+    if (command === "/yellow" || command === "/green" || command === "/red") {
+      const [goalNamePart, notePart] = rest.includes("|")
+        ? rest.split("|", 2).map((part) => part.trim())
+        : [null, rest];
+
+      if (!notePart) {
+        throw new Error("进展命令需要备注内容。");
+      }
+
+      return {
+        type: "tracker",
+        status: command.slice(1) as GoalTrackerStatus,
+        goalName: goalNamePart,
+        note: notePart
+      };
+    }
+
+    throw new Error("未知命令。支持 /todo /goal /note /yellow /green /red");
+  }
+
+  private resolveGoalTarget(goalName: string | null, selectedGoalIndexPath: string | null): GoalSummary {
+    const activeGoals = (this.latestState.goals ?? []).filter((goal) => goal.status === "active");
+    const locale = this.settings.uiLocale || "zh-CN";
+
+    if (goalName) {
+      const normalized = normalizeGoalToken(goalName, locale);
+      const exactMatch = activeGoals.find((goal) =>
+        this.getGoalAliases(goal).some((alias) => normalizeGoalToken(alias, locale) === normalized)
+      );
+      if (exactMatch) {
+        return exactMatch;
+      }
+
+      const fuzzyMatches = activeGoals.filter((goal) =>
+        this.getGoalAliases(goal).some((alias) => {
+          const candidate = normalizeGoalToken(alias, locale);
+          return candidate.includes(normalized) || normalized.includes(candidate);
+        })
+      );
+      if (fuzzyMatches.length === 1) {
+        return fuzzyMatches[0];
+      }
+
+      if (fuzzyMatches.length > 1) {
+        throw new Error(`目标名「${goalName}」不唯一，请写完整名称。`);
+      }
+
+      throw new Error(`未找到目标「${goalName}」。`);
+    }
+
+    if (selectedGoalIndexPath) {
+      const selectedGoal = activeGoals.find((goal) => goal.indexPath === selectedGoalIndexPath);
+      if (selectedGoal) {
+        return selectedGoal;
+      }
+    }
+
+    if (activeGoals.length === 1) {
+      return activeGoals[0];
+    }
+
+    throw new Error("请先选择目标，或在命令里写成“目标名 | 内容”。");
+  }
+
   private getActiveNoteName(): string | null {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     return view?.file?.basename ?? null;
+  }
+
+  private getGoalAliases(goal: GoalSummary): string[] {
+    const folderName = goal.folderPath.split("/").pop() ?? goal.folderPath;
+    const indexBaseName = basenameWithoutExtension(goal.indexPath).replace(/^_Index_/, "");
+
+    return Array.from(
+      new Set(
+        [goal.name, goal.folderPath, folderName, indexBaseName]
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      )
+    );
   }
 }

@@ -5,6 +5,7 @@ import type { ManagedTask, TaskBlockType } from "../types";
 import { appendToBlock, readBlock, replaceBlock } from "../utils/blocks";
 import { createTaskId } from "../utils/date";
 import { ensureMdExtension } from "../utils/paths";
+import { assertSafeMarkdownPath } from "../utils/safe-write-paths";
 import { parseTaskLines, renderTaskLine, toggleTaskLine } from "../utils/tasks";
 import { ensureMarkdownFile } from "../utils/vault";
 import { DailyNoteService } from "./daily-note-service";
@@ -34,6 +35,7 @@ export class TaskService {
     if (!file) {
       throw new Error("无法定位日常任务文件。");
     }
+
     const suffix = sourceNoteName ? ` [来源：[[${sourceNoteName}]]]` : "";
     const line = renderTaskLine({
       text: `${normalizedText}${suffix}`,
@@ -110,7 +112,9 @@ export class TaskService {
 
   private async resolveLifeTaskFile(create: boolean): Promise<TFile | null> {
     if (this.plugin.settings.lifeTaskTarget === "global-file") {
-      const targetPath = ensureMdExtension(this.plugin.settings.globalTodoPath);
+      const targetPath = ensureMdExtension(
+        assertSafeMarkdownPath(this.plugin.app, this.plugin.settings.globalTodoPath, "全局待办路径")
+      );
       const existing = this.plugin.app.vault.getAbstractFileByPath(targetPath);
       if (existing instanceof TFile) {
         return existing;

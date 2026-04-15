@@ -1,9 +1,13 @@
 import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { CONTROLLED_BLOCKS } from "../constants";
+import { CAPTURE_LIMIT, CAPTURE_LOOKBACK_DAYS } from "../runtime-constants";
 import type NexusCommandPlugin from "../main";
-import { appendToBlock } from "../utils/blocks";
-import { formatDateToken, getDateTimeStamp } from "../utils/date";
+import type { CaptureEntry, CaptureTriageStatus } from "../types";
+import { appendToBlock, readBlock, replaceBlock } from "../utils/blocks";
+import { parseCaptureEntries, renderCaptureEntry } from "../utils/captures";
+import { createCaptureId, formatDateToken, getDateTimeStamp } from "../utils/date";
+import { assertSafeFolderPath } from "../utils/safe-write-paths";
 import { ensureMarkdownFile } from "../utils/vault";
 
 type DailyNoteConfig = {
@@ -17,7 +21,10 @@ export class DailyNoteService {
   getPreferredPath(date: Date = new Date()): string {
     const config = this.resolveDailyNoteConfig();
     const fileName = `${formatDateToken(date, config.format)}.md`;
-    return normalizePath(config.folder ? `${config.folder}/${fileName}` : fileName);
+    const safeFolder = config.folder
+      ? assertSafeFolderPath(this.plugin.app, config.folder, "Daily Note 文件夹")
+      : "";
+    return normalizePath(safeFolder ? `${safeFolder}/${fileName}` : fileName);
   }
 
   async getDailyNoteFile(date: Date = new Date(), create = false): Promise<TFile | null> {
@@ -45,18 +52,72 @@ export class DailyNoteService {
     if (!file) {
       throw new Error("无法创建当日日记。");
     }
+
     const chipLabels = chipIds
       .map((chipId) => this.plugin.latestState.captureChips.find((chip) => chip.id === chipId)?.label)
       .filter((chip): chip is string => Boolean(chip));
-    const chipString = chipLabels.length > 0 ? chipLabels.join(" ") : "#闪念";
-    const calloutLines = [
-      `> [!note] ${getDateTimeStamp(new Date())}`,
-      `> [${chipString}] ${normalizedText}`
-    ];
+    const entry: CaptureEntry = {
+      id: createCaptureId(),
+      timestamp: getDateTimeStamp(new Date()),
+      chipLabels,
+      text: normalizedText,
+      triageStatus: "pending",
+      sourcePath: file.path
+    };
 
     await this.plugin.app.vault.process(file, (content) =>
-      appendToBlock(content, CONTROLLED_BLOCKS.capture, calloutLines)
+      appendToBlock(content, CONTROLLED_BLOCKS.capture, [renderCaptureEntry(entry)])
     );
+  }
+
+  async listRecentCaptures(): Promise<CaptureEntry[]> {
+    const captures: CaptureEntry[] = [];
+
+    for (let offset = 0; offset < CAPTURE_LOOKBACK_DAYS; offset += 1) {
+      const file = await this.getDailyNoteFile(this.shiftDate(new Date(), -offset), false);
+      if (!file) {
+        continue;
+      }
+
+      const content = await this.plugin.app.vault.read(file);
+      const blockBody = readBlock(content, CONTROLLED_BLOCKS.capture);
+      if (!blockBody) {
+        continue;
+      }
+
+      captures.push(...parseCaptureEntries(blockBody, file.path));
+    }
+
+    return captures
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+      .slice(0, CAPTURE_LIMIT);
+  }
+
+  async updateCaptureStatus(
+    capture: Pick<CaptureEntry, "id" | "sourcePath">,
+    triageStatus: CaptureTriageStatus
+  ): Promise<void> {
+    const file = this.plugin.app.vault.getAbstractFileByPath(capture.sourcePath);
+    if (!(file instanceof TFile)) {
+      throw new Error("闪念来源文件不存在。");
+    }
+
+    await this.plugin.app.vault.process(file, (content) => {
+      const blockBody = readBlock(content, CONTROLLED_BLOCKS.capture);
+      if (!blockBody) {
+        return content;
+      }
+
+      const entries = parseCaptureEntries(blockBody, file.path).map((entry) =>
+        entry.id === capture.id ? { ...entry, triageStatus } : entry
+      );
+
+      return replaceBlock(
+        content,
+        CONTROLLED_BLOCKS.capture,
+        entries.map((entry) => renderCaptureEntry(entry)).join("\n\n")
+      );
+    });
   }
 
   private resolveDailyNoteConfig(): DailyNoteConfig {
@@ -135,5 +196,11 @@ export class DailyNoteService {
       folder: settings.folder ?? this.plugin.settings.dailyNoteFolder,
       format: settings.format ?? this.plugin.settings.dailyNoteFormat
     };
+  }
+
+  private shiftDate(date: Date, offsetDays: number): Date {
+    const shifted = new Date(date);
+    shifted.setDate(shifted.getDate() + offsetDays);
+    return shifted;
   }
 }

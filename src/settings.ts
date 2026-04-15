@@ -1,8 +1,7 @@
-import { Plugin, PluginSettingTab, Setting } from "obsidian";
+import { Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
 import type { App } from "obsidian";
 import { DEFAULT_SETTINGS } from "./constants";
-import type { NexusSettings } from "./types";
-import type { LifeTaskTarget } from "./types";
+import type { LifeTaskTarget, NexusSettings } from "./types";
 
 export class NexusSettingTab extends PluginSettingTab {
   constructor(
@@ -18,18 +17,18 @@ export class NexusSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Nexus Command 设置" });
+    containerEl.createEl("h2", { text: "Spark Track 设置" });
 
     new Setting(containerEl)
       .setName("Daily Note 文件夹")
-      .setDesc("当未启用官方 Daily Notes 或 Periodic Notes 时，作为回退目录。")
+      .setDesc("未启用 Daily Notes / Periodic Notes 时使用这个目录。")
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_SETTINGS.dailyNoteFolder)
           .setValue(this.plugin.settings.dailyNoteFolder)
           .onChange(async (value) => {
             this.plugin.settings.dailyNoteFolder = value.trim() || DEFAULT_SETTINGS.dailyNoteFolder;
-            await this.plugin.saveSettings();
+            await this.persist();
           })
       );
 
@@ -42,7 +41,7 @@ export class NexusSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.dailyNoteFormat)
           .onChange(async (value) => {
             this.plugin.settings.dailyNoteFormat = value.trim() || DEFAULT_SETTINGS.dailyNoteFormat;
-            await this.plugin.saveSettings();
+            await this.persist();
           })
       );
 
@@ -56,33 +55,33 @@ export class NexusSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.lifeTaskTarget)
           .onChange(async (value) => {
             this.plugin.settings.lifeTaskTarget = value as LifeTaskTarget;
-            await this.plugin.saveSettings();
+            await this.persist();
           })
       );
 
     new Setting(containerEl)
       .setName("全局待办路径")
-      .setDesc("当日常任务目标设为全局文件时，任务会写入这里。")
+      .setDesc("必须是普通 Markdown 路径，不能指向源码或插件目录。")
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_SETTINGS.globalTodoPath)
           .setValue(this.plugin.settings.globalTodoPath)
           .onChange(async (value) => {
             this.plugin.settings.globalTodoPath = value.trim() || DEFAULT_SETTINGS.globalTodoPath;
-            await this.plugin.saveSettings();
+            await this.persist();
           })
       );
 
     new Setting(containerEl)
       .setName("战略目标根目录")
-      .setDesc("所有目标文件夹与索引文件都会创建在此目录下。")
+      .setDesc("目标文件夹都会创建在这里。请不要填 src/、dist/、.obsidian/plugins/ 这类目录。")
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_SETTINGS.goalRootFolder)
           .setValue(this.plugin.settings.goalRootFolder)
           .onChange(async (value) => {
             this.plugin.settings.goalRootFolder = value.trim() || DEFAULT_SETTINGS.goalRootFolder;
-            await this.plugin.saveSettings();
+            await this.persist();
           })
       );
 
@@ -95,8 +94,17 @@ export class NexusSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.uiLocale)
           .onChange(async (value) => {
             this.plugin.settings.uiLocale = value.trim() || DEFAULT_SETTINGS.uiLocale;
-            await this.plugin.saveSettings();
+            await this.persist();
           })
       );
+  }
+
+  private async persist(): Promise<void> {
+    try {
+      await this.plugin.saveSettings();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "设置保存失败。");
+      this.display();
+    }
   }
 }

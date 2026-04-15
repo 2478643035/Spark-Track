@@ -2,7 +2,7 @@ import type { CaptureChip, ControlledBlockSpec, NexusSettings } from "./types";
 
 export const PLUGIN_ID = "nexus-command";
 export const VIEW_TYPE = "nexus-command-view";
-export const VIEW_TITLE = "Nexus Command";
+export const VIEW_TITLE = "Spark Track";
 
 export const CAPTURE_CHIPS: CaptureChip[] = [
   { id: "idea", label: "#想法", icon: "💡", category: "tag" },

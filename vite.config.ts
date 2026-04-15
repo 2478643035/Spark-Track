@@ -17,7 +17,7 @@ export default defineConfig({
     emptyOutDir: true,
     cssCodeSplit: false,
     lib: {
-      entry: resolve(__dirname, "src/plugin-v11.ts"),
+      entry: resolve(__dirname, "src/main.ts"),
       fileName: () => "main.js",
       formats: ["cjs"]
     },
