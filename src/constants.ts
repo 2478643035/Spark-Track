@@ -1,7 +1,7 @@
 import type { CaptureChip, ControlledBlockSpec, NexusSettings } from "./types";
 
-export const PLUGIN_ID = "nexus-command";
-export const VIEW_TYPE = "nexus-command-view";
+export const PLUGIN_ID = "spark-track";
+export const VIEW_TYPE = "spark-track-view";
 export const VIEW_TITLE = "Spark Track";
 
 export const CAPTURE_CHIPS: CaptureChip[] = [

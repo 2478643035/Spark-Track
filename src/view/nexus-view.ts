@@ -26,7 +26,7 @@ export class NexusCommandView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.contentEl.empty();
-    this.contentEl.addClass("nexus-command-view");
+    this.contentEl.addClass("spark-track-view");
     this.component = new App({
       target: this.contentEl,
       props: {

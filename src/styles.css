@@ -14,9 +14,9 @@
   --nexus-idle: #cbbcae;
 }
 
-.nexus-command-view,
-.nexus-command-view .view-content,
-.nexus-command-view .workspace-leaf-content[data-type="nexus-command-view"] {
+.spark-track-view,
+.spark-track-view .view-content,
+.spark-track-view .workspace-leaf-content[data-type="spark-track-view"] {
   height: 100%;
 }
 
