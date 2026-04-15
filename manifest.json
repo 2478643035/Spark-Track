@@ -1,0 +1,10 @@
+{
+  "id": "nexus-command",
+  "name": "Nexus Command",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "A mobile-first sidebar console for capture, tasks, and goal tracking inside Obsidian.",
+  "author": "OpenAI Codex",
+  "authorUrl": "https://openai.com",
+  "isDesktopOnly": false
+}

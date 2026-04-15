@@ -1,0 +1,20 @@
+{
+  "name": "nexus-command",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && node scripts/copy-build.mjs",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.4",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/node": "^24.0.1",
+    "obsidian": "^1.8.10",
+    "svelte": "^5.37.3",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.2",
+    "vite": "^5.4.14"
+  }
+}
