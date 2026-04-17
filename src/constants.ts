@@ -28,6 +28,7 @@ export const CONTROLLED_BLOCKS: Record<string, ControlledBlockSpec> = {
     endMarker: "<!-- nexus:goal-tasks:end -->"
   },
   timeline: {
+    heading: "## Progress Timeline",
     leadIn: ["> [!info] 项目历程自动生成区"],
     startMarker: "<!-- nexus:timeline:start -->",
     endMarker: "<!-- nexus:timeline:end -->"

@@ -244,6 +244,12 @@ button:disabled {
   gap: 10px;
 }
 
+.capture-list {
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .capture-item,
 .radar-card {
   border: 1px solid var(--nexus-border);
@@ -252,11 +258,38 @@ button:disabled {
   background: rgba(255, 255, 255, 0.56);
 }
 
+.capture-item {
+  display: grid;
+  gap: 10px;
+}
+
 .capture-item p,
 .radar-item p {
   margin: 0;
   color: var(--nexus-ink);
   line-height: 1.45;
+}
+
+.capture-item__text {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.capture-item__text.expanded {
+  display: block;
+}
+
+.capture-item__toggle {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nexus-accent);
+  font-size: 0.82rem;
 }
 
 .capture-item__meta,

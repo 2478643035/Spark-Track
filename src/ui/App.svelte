@@ -35,6 +35,7 @@
   let modalCapture: CaptureEntry | null = null;
   let modalBlockerId: string | null = null;
   let modalText = "";
+  let expandedCaptureIds = new Set<string>();
   let busy = false;
 
   const unsubscribe = controller.state.subscribe((value) => {
@@ -119,6 +120,21 @@
     }
 
     expandedGoals = next;
+  }
+
+  function isLongCapture(capture: CaptureEntry): boolean {
+    return capture.text.length > 180 || capture.text.includes("\n");
+  }
+
+  function toggleCaptureExpansion(captureId: string) {
+    const next = new Set(expandedCaptureIds);
+    if (next.has(captureId)) {
+      next.delete(captureId);
+    } else {
+      next.add(captureId);
+    }
+
+    expandedCaptureIds = next;
   }
 
   async function run(action: () => Promise<void>) {
@@ -365,7 +381,17 @@
                 </span>
               </div>
 
-              <p>{capture.text}</p>
+              <p class="capture-item__text" class:expanded={expandedCaptureIds.has(capture.id)}>{capture.text}</p>
+
+              {#if isLongCapture(capture)}
+                <button
+                  class="capture-item__toggle"
+                  type="button"
+                  on:click={() => toggleCaptureExpansion(capture.id)}
+                >
+                  {expandedCaptureIds.has(capture.id) ? "收起" : "展开全文"}
+                </button>
+              {/if}
 
               {#if capture.triageStatus === "pending"}
                 <div class="capture-item__actions">
