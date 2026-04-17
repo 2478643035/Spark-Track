@@ -1,11 +1,45 @@
 import type { ControlledBlockSpec } from "../types";
 
+type BlockRange = {
+  startIndex: number;
+  endIndex: number;
+  bodyStart: number;
+  kind: "marker" | "heading";
+};
+
 function normalizeBlockBody(body: string): string {
-  const trimmed = body.trim();
-  return trimmed.length > 0 ? `${trimmed}\n` : "";
+  return body.trim();
 }
 
-function findBlockRange(content: string, spec: ControlledBlockSpec) {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function skipLineBreak(content: string, index: number): number {
+  if (content.slice(index, index + 2) === "\r\n") {
+    return index + 2;
+  }
+
+  if (content[index] === "\n") {
+    return index + 1;
+  }
+
+  return index;
+}
+
+function skipBlankLine(content: string, index: number): number {
+  if (content.slice(index, index + 2) === "\r\n") {
+    return index + 2;
+  }
+
+  if (content[index] === "\n") {
+    return index + 1;
+  }
+
+  return index;
+}
+
+function findMarkerRange(content: string, spec: ControlledBlockSpec): BlockRange | null {
   const startIndex = content.indexOf(spec.startMarker);
   const endIndex = startIndex === -1 ? -1 : content.indexOf(spec.endMarker, startIndex);
 
@@ -15,9 +49,70 @@ function findBlockRange(content: string, spec: ControlledBlockSpec) {
 
   return {
     startIndex,
-    endIndex,
-    bodyStart: content.indexOf("\n", startIndex + spec.startMarker.length) + 1
+    endIndex: endIndex + spec.endMarker.length,
+    bodyStart: content.indexOf("\n", startIndex + spec.startMarker.length) + 1,
+    kind: "marker"
   };
+}
+
+function findHeadingRange(content: string, spec: ControlledBlockSpec): BlockRange | null {
+  if (!spec.heading) {
+    return null;
+  }
+
+  const headingPattern = new RegExp(`^${escapeRegExp(spec.heading)}\\s*$`, "m");
+  const headingMatch = headingPattern.exec(content);
+  if (!headingMatch) {
+    return null;
+  }
+
+  let bodyStart = headingMatch.index + headingMatch[0].length;
+  bodyStart = skipLineBreak(content, bodyStart);
+  bodyStart = skipBlankLine(content, bodyStart);
+
+  if (spec.leadIn?.length) {
+    const leadInText = spec.leadIn.join("\n");
+    if (content.slice(bodyStart, bodyStart + leadInText.length) === leadInText) {
+      bodyStart += leadInText.length;
+      bodyStart = skipLineBreak(content, bodyStart);
+      bodyStart = skipBlankLine(content, bodyStart);
+    }
+  }
+
+  const nextHeadingPattern = /^##\s+/gm;
+  nextHeadingPattern.lastIndex = bodyStart;
+  const nextHeadingMatch = nextHeadingPattern.exec(content);
+  const endIndex = nextHeadingMatch ? nextHeadingMatch.index : content.length;
+
+  return {
+    startIndex: headingMatch.index,
+    endIndex,
+    bodyStart,
+    kind: "heading"
+  };
+}
+
+function findBlockRange(content: string, spec: ControlledBlockSpec): BlockRange | null {
+  return findMarkerRange(content, spec) ?? findHeadingRange(content, spec);
+}
+
+function renderSection(spec: ControlledBlockSpec, body: string): string {
+  const parts: string[] = [];
+  const normalizedBody = normalizeBlockBody(body);
+
+  if (spec.heading) {
+    parts.push(spec.heading);
+  }
+
+  if (spec.leadIn?.length) {
+    parts.push(spec.leadIn.join("\n"));
+  }
+
+  if (normalizedBody) {
+    parts.push(normalizedBody);
+  }
+
+  return `${parts.filter(Boolean).join("\n\n").trim()}\n`;
 }
 
 export function readBlock(content: string, spec: ControlledBlockSpec): string | null {
@@ -26,33 +121,21 @@ export function readBlock(content: string, spec: ControlledBlockSpec): string | 
     return null;
   }
 
-  return content.slice(range.bodyStart, range.endIndex).trim();
+  const bodyEnd = range.kind === "marker" ? range.endIndex - spec.endMarker.length : range.endIndex;
+  return content.slice(range.bodyStart, bodyEnd).trim();
 }
 
 export function replaceBlock(content: string, spec: ControlledBlockSpec, body: string): string {
-  const normalizedBody = normalizeBlockBody(body);
-  const blockText = `${spec.startMarker}\n${normalizedBody}${spec.endMarker}`;
+  const sectionText = renderSection(spec, body);
   const range = findBlockRange(content, spec);
 
   if (!range) {
-    const parts = [content.trimEnd()];
-
-    if (spec.heading) {
-      parts.push(spec.heading);
-    }
-
-    if (spec.leadIn?.length) {
-      parts.push(spec.leadIn.join("\n"));
-    }
-
-    parts.push(blockText);
-
-    return `${parts.filter(Boolean).join("\n\n").trim()}\n`;
+    const base = content.trimEnd();
+    const joined = [base, sectionText.trim()].filter(Boolean).join("\n\n");
+    return `${joined.trim()}\n`;
   }
 
-  return `${content.slice(0, range.startIndex)}${blockText}${content.slice(
-    range.endIndex + spec.endMarker.length
-  )}`.replace(/\n{3,}/g, "\n\n");
+  return `${content.slice(0, range.startIndex)}${sectionText}${content.slice(range.endIndex)}`.replace(/\n{3,}/g, "\n\n");
 }
 
 export function appendToBlock(content: string, spec: ControlledBlockSpec, lines: string[]): string {

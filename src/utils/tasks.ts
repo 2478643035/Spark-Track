@@ -1,7 +1,7 @@
 import type { ManagedTask, TaskBlockType } from "../types";
 
 const TASK_PATTERN =
-  /^- \[( |x)\] (.*?)(?:\s*<!--\s*nexus:task-id=([A-Za-z0-9-]+)\s*-->)?\s*$/;
+  /^- \[( |x)\] (.*?)(?:\s*(?:<!--\s*nexus:task-id=([A-Za-z0-9-]+)\s*-->|(\^[A-Za-z0-9-]+)))?\s*$/;
 
 export function renderTaskLine(input: {
   completed?: boolean;
@@ -9,7 +9,7 @@ export function renderTaskLine(input: {
   taskId: string;
 }): string {
   const marker = input.completed ? "x" : " ";
-  return `- [${marker}] ${input.text.trim()} <!-- nexus:task-id=${input.taskId} -->`;
+  return `- [${marker}] ${input.text.trim()} ^${input.taskId}`;
 }
 
 export function parseTaskLines(input: {
@@ -27,12 +27,13 @@ export function parseTaskLines(input: {
     }
 
     const match = line.match(TASK_PATTERN);
-    if (!match || !match[3]) {
+    const taskId = match?.[3] ?? match?.[4]?.slice(1);
+    if (!match || !taskId) {
       continue;
     }
 
     tasks.push({
-      id: match[3],
+      id: taskId,
       text: match[2].trim(),
       completed: match[1] === "x",
       targetPath: input.targetPath,
