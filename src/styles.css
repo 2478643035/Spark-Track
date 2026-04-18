@@ -482,15 +482,21 @@ button:disabled {
 }
 
 .goal-card__header {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
   width: 100%;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 14px;
-  border: 0;
-  background: transparent;
   text-align: left;
+}
+
+.goal-card__header:focus-visible {
+  outline: 2px solid rgba(184, 92, 56, 0.24);
+  outline-offset: -2px;
 }
 
 .goal-card__title {
@@ -555,6 +561,14 @@ button:disabled {
 
 .goal-card__body {
   padding: 0 14px 14px;
+}
+
+.goal-card.open .goal-card__header {
+  border-bottom: 1px solid rgba(80, 57, 33, 0.08);
+}
+
+.goal-card.open .goal-card__body {
+  padding-top: 12px;
 }
 
 .goal-card__heatmap {

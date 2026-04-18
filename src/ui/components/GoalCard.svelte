@@ -65,8 +65,13 @@
   $: folderSummary = folderName === goal.name ? goal.folderPath : `${folderName} · ${goal.folderPath}`;
 </script>
 
-<article class:archived={goal.status === "archived"} class="goal-card">
-  <button class="goal-card__header" type="button" on:click={() => dispatch("toggle")}>
+<article class:archived={goal.status === "archived"} class:open={open} class="goal-card">
+  <button
+    aria-expanded={open}
+    class="goal-card__header"
+    type="button"
+    on:click={() => dispatch("toggle")}
+  >
     <div class="goal-card__title">
       <span class="goal-card__dot" data-status={goal.latestStatus ?? "idle"} aria-hidden="true"></span>
       <div>
