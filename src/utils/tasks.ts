@@ -48,3 +48,10 @@ export function parseTaskLines(input: {
 export function toggleTaskLine(line: string, completed: boolean): string {
   return line.replace(/^- \[( |x)\]/, `- [${completed ? "x" : " "}]`);
 }
+
+export function hasTaskId(line: string, taskId: string): boolean {
+  return (
+    line.includes(`nexus:task-id=${taskId}`) ||
+    new RegExp(`\\^${taskId}(?:\\s|$)`).test(line)
+  );
+}

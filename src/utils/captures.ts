@@ -3,6 +3,7 @@ import { createCaptureId } from "./date";
 
 const CAPTURE_META_PATTERN =
   /^<!--\s*nexus:capture-meta\s+id=([A-Za-z0-9-]+)\s+status=([A-Za-z0-9-]+)\s*-->$/;
+const CAPTURE_HEADER_PATTERN = /^\[!note\]\s+(.+?)(?:\s+\^([A-Za-z0-9-]+))?$/;
 
 function normalizeStatus(value: string | undefined): CaptureTriageStatus {
   switch (value) {
@@ -19,9 +20,9 @@ function normalizeStatus(value: string | undefined): CaptureTriageStatus {
 }
 
 function createLegacyCaptureId(sourcePath: string, timestamp: string, index: number): string {
-  const sourceToken = sourcePath.replace(/[^A-Za-z0-9]/g, "").slice(-12) || "capture";
-  const timeToken = timestamp.replace(/[^0-9]/g, "").slice(-12) || `${index}`;
-  return `capture-${sourceToken}-${timeToken}-${index}`;
+  const sourceToken = sourcePath.replace(/[^A-Za-z0-9]/g, "").slice(-8) || "legacy";
+  const timeToken = timestamp.replace(/[^0-9]/g, "").slice(-8) || `${index}`;
+  return `c-${sourceToken}${timeToken}`;
 }
 
 function finalizeEntry(
@@ -30,27 +31,25 @@ function finalizeEntry(
     | {
         id: string;
         triageStatus: CaptureTriageStatus;
+        timestamp: string;
         lines: string[];
       }
     | null,
   sourcePath: string,
   index: number
 ): void {
-  if (!working || working.lines.length === 0) {
+  if (!working || !working.timestamp || working.lines.length === 0) {
     return;
   }
 
-  const timestamp = working.lines[0]?.replace(/^\[!note\]\s*/, "").trim() || "";
-  const firstContentLine = working.lines[1] ?? "";
+  const firstContentLine = working.lines[0] ?? "";
   const chipMatch = firstContentLine.match(/^\[(.*?)\]\s*(.*)$/);
   const chipLabels = chipMatch?.[1]?.split(/\s+/).filter(Boolean) ?? [];
-  const textLines = chipMatch
-    ? [chipMatch[2], ...working.lines.slice(2)]
-    : working.lines.slice(1);
+  const textLines = chipMatch ? [chipMatch[2], ...working.lines.slice(1)] : working.lines;
 
   entries.push({
-    id: working.id || createLegacyCaptureId(sourcePath, timestamp, index),
-    timestamp,
+    id: working.id || createLegacyCaptureId(sourcePath, working.timestamp, index),
+    timestamp: working.timestamp,
     chipLabels,
     text: textLines.join("\n").trim(),
     triageStatus: working.triageStatus,
@@ -65,10 +64,12 @@ export function parseCaptureEntries(body: string, sourcePath: string): CaptureEn
     | {
         id: string;
         triageStatus: CaptureTriageStatus;
+        timestamp: string;
         lines: string[];
       }
     | null = null;
   let entryIndex = 0;
+  let pendingMeta: { id: string; triageStatus: CaptureTriageStatus } | null = null;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -78,12 +79,9 @@ export function parseCaptureEntries(body: string, sourcePath: string): CaptureEn
 
     const metaMatch = line.match(CAPTURE_META_PATTERN);
     if (metaMatch) {
-      finalizeEntry(entries, working, sourcePath, entryIndex);
-      entryIndex += 1;
-      working = {
+      pendingMeta = {
         id: metaMatch[1],
-        triageStatus: normalizeStatus(metaMatch[2]),
-        lines: []
+        triageStatus: normalizeStatus(metaMatch[2])
       };
       continue;
     }
@@ -93,20 +91,23 @@ export function parseCaptureEntries(body: string, sourcePath: string): CaptureEn
     }
 
     const quoteLine = line.replace(/^>\s?/, "");
-    const startsNewEntry = quoteLine.startsWith("[!note]");
+    const headerMatch = quoteLine.match(CAPTURE_HEADER_PATTERN);
 
-    if (startsNewEntry && working?.lines.length) {
+    if (headerMatch) {
       finalizeEntry(entries, working, sourcePath, entryIndex);
       entryIndex += 1;
-      working = null;
+      working = {
+        id: headerMatch[2] ?? pendingMeta?.id ?? createLegacyCaptureId(sourcePath, headerMatch[1], entryIndex),
+        triageStatus: pendingMeta?.triageStatus ?? "pending",
+        timestamp: headerMatch[1].trim(),
+        lines: []
+      };
+      pendingMeta = null;
+      continue;
     }
 
     if (!working) {
-      working = {
-        id: createLegacyCaptureId(sourcePath, quoteLine, entryIndex),
-        triageStatus: "pending",
-        lines: []
-      };
+      continue;
     }
 
     working.lines.push(quoteLine);
@@ -118,12 +119,12 @@ export function parseCaptureEntries(body: string, sourcePath: string): CaptureEn
 }
 
 export function renderCaptureEntry(entry: CaptureEntry): string {
-  const chips = entry.chipLabels.length > 0 ? entry.chipLabels.join(" ") : "#闪念";
   const textLines = entry.text.split(/\r?\n/);
+  const firstLine = textLines[0] ?? "";
+  const chipPrefix = entry.chipLabels.length > 0 ? `[${entry.chipLabels.join(" ")}] ` : "";
   const renderedLines = [
-    `<!-- nexus:capture-meta id=${entry.id || createCaptureId()} status=${entry.triageStatus} -->`,
-    `> [!note] ${entry.timestamp}`,
-    `> [${chips}] ${textLines[0] ?? ""}`,
+    `> [!note] ${entry.timestamp} ^${entry.id || createCaptureId()}`,
+    `> ${chipPrefix}${firstLine}`,
     ...textLines.slice(1).map((line) => `> ${line}`)
   ];
 

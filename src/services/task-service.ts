@@ -2,11 +2,11 @@ import { TFile } from "obsidian";
 import { CONTROLLED_BLOCKS } from "../constants";
 import type NexusCommandPlugin from "../main";
 import type { ManagedTask, TaskBlockType } from "../types";
-import { appendToBlock, readBlock, replaceBlock } from "../utils/blocks";
+import { readBlock, replaceBlock } from "../utils/blocks";
 import { createTaskId } from "../utils/date";
 import { ensureMdExtension } from "../utils/paths";
 import { assertSafeMarkdownPath } from "../utils/safe-write-paths";
-import { parseTaskLines, renderTaskLine, toggleTaskLine } from "../utils/tasks";
+import { hasTaskId, parseTaskLines, renderTaskLine, toggleTaskLine } from "../utils/tasks";
 import { ensureMarkdownFile } from "../utils/vault";
 import { DailyNoteService } from "./daily-note-service";
 
@@ -42,9 +42,25 @@ export class TaskService {
       taskId: createTaskId()
     });
 
-    await this.plugin.app.vault.process(file, (content) =>
-      appendToBlock(content, CONTROLLED_BLOCKS.lifeTasks, [line])
-    );
+    await this.plugin.app.vault.process(file, (content) => {
+      const existingTasks = parseTaskLines({
+        body: readBlock(content, CONTROLLED_BLOCKS.lifeTasks) ?? "",
+        targetPath: file.path,
+        blockType: "life"
+      });
+      const nextBody = [
+        ...existingTasks.map((task) =>
+          renderTaskLine({
+            completed: task.completed,
+            text: task.text,
+            taskId: task.id
+          })
+        ),
+        line
+      ].join("\n");
+
+      return replaceBlock(content, CONTROLLED_BLOCKS.lifeTasks, nextBody);
+    });
   }
 
   async createGoalTask(goalIndexPath: string, text: string): Promise<void> {
@@ -63,9 +79,25 @@ export class TaskService {
       taskId: createTaskId()
     });
 
-    await this.plugin.app.vault.process(file, (content) =>
-      appendToBlock(content, CONTROLLED_BLOCKS.goalTasks, [line])
-    );
+    await this.plugin.app.vault.process(file, (content) => {
+      const existingTasks = parseTaskLines({
+        body: readBlock(content, CONTROLLED_BLOCKS.goalTasks) ?? "",
+        targetPath: file.path,
+        blockType: "goal"
+      });
+      const nextBody = [
+        ...existingTasks.map((task) =>
+          renderTaskLine({
+            completed: task.completed,
+            text: task.text,
+            taskId: task.id
+          })
+        ),
+        line
+      ].join("\n");
+
+      return replaceBlock(content, CONTROLLED_BLOCKS.goalTasks, nextBody);
+    });
   }
 
   async toggleTask(task: ManagedTask, completed: boolean): Promise<void> {
@@ -84,12 +116,29 @@ export class TaskService {
 
       const updatedLines = blockBody
         .split("\n")
-        .map((line) =>
-          line.includes(`nexus:task-id=${task.id}`) ? toggleTaskLine(line, completed) : line
-        )
+        .map((line) => (hasTaskId(line, task.id) ? toggleTaskLine(line, completed) : line));
+      const normalizedLines = updatedLines
+        .map((line) => {
+          const trimmed = line.trim();
+          const match = trimmed.match(/^- \[( |x)\] (.*?)(?:\s*(?:<!--\s*nexus:task-id=([A-Za-z0-9-]+)\s*-->|(\^[A-Za-z0-9-]+)))?\s*$/);
+          if (!match) {
+            return line;
+          }
+
+          const nextTaskId = match[3] ?? match[4]?.slice(1);
+          if (!nextTaskId) {
+            return line;
+          }
+
+          return renderTaskLine({
+            completed: match[1] === "x",
+            text: match[2].trim(),
+            taskId: nextTaskId
+          });
+        })
         .join("\n");
 
-      return replaceBlock(content, spec, updatedLines);
+      return replaceBlock(content, spec, normalizedLines);
     });
   }
 

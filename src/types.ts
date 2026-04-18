@@ -59,6 +59,11 @@ export interface CaptureEntry {
   sourcePath: string;
 }
 
+export interface NexusPluginData {
+  settings?: Partial<NexusSettings> | null;
+  captureTriage?: Record<string, CaptureTriageStatus> | null;
+}
+
 export interface TrackerEntry {
   id: string;
   date: string;

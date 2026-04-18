@@ -4,7 +4,7 @@ import { CONTROLLED_BLOCKS } from "../constants";
 import { CAPTURE_LIMIT, CAPTURE_LOOKBACK_DAYS } from "../runtime-constants";
 import type NexusCommandPlugin from "../main";
 import type { CaptureEntry, CaptureTriageStatus } from "../types";
-import { appendToBlock, readBlock, replaceBlock } from "../utils/blocks";
+import { readBlock, replaceBlock } from "../utils/blocks";
 import { parseCaptureEntries, renderCaptureEntry } from "../utils/captures";
 import { createCaptureId, formatDateToken, getDateTimeStamp } from "../utils/date";
 import { assertSafeFolderPath } from "../utils/safe-write-paths";
@@ -65,9 +65,16 @@ export class DailyNoteService {
       sourcePath: file.path
     };
 
-    await this.plugin.app.vault.process(file, (content) =>
-      appendToBlock(content, CONTROLLED_BLOCKS.capture, [renderCaptureEntry(entry)])
-    );
+    await this.plugin.app.vault.process(file, (content) => {
+      const existingEntries = parseCaptureEntries(readBlock(content, CONTROLLED_BLOCKS.capture) ?? "", file.path);
+      const nextEntries = [...existingEntries, entry];
+
+      return replaceBlock(
+        content,
+        CONTROLLED_BLOCKS.capture,
+        nextEntries.map((capture) => renderCaptureEntry(capture)).join("\n\n")
+      );
+    });
   }
 
   async listRecentCaptures(): Promise<CaptureEntry[]> {
@@ -89,6 +96,10 @@ export class DailyNoteService {
     }
 
     return captures
+      .map((capture) => ({
+        ...capture,
+        triageStatus: this.plugin.getCaptureTriageStatus(capture.id) ?? capture.triageStatus
+      }))
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
       .slice(0, CAPTURE_LIMIT);
   }
@@ -118,6 +129,8 @@ export class DailyNoteService {
         entries.map((entry) => renderCaptureEntry(entry)).join("\n\n")
       );
     });
+
+    await this.plugin.setCaptureTriageStatus(capture.id, triageStatus);
   }
 
   private resolveDailyNoteConfig(): DailyNoteConfig {

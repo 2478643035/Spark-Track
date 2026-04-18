@@ -29,24 +29,26 @@ export function getDateTimeStamp(date: Date): string {
   return formatDateToken(date, "YYYY-MM-DD HH:mm");
 }
 
+function createCompactId(prefix: string, date: Date = new Date()): string {
+  const timeToken = date.getTime().toString(36);
+  const randomToken = Math.random().toString(36).slice(2, 4);
+  return `${prefix}-${timeToken}${randomToken}`;
+}
+
 export function createTrackerId(date: Date): string {
   return formatDateToken(date, "YYYY-MM-DDTHH:mm:ss");
 }
 
 export function createTaskId(date: Date = new Date()): string {
-  return `task-${formatDateToken(date, "YYYYMMDDHHmmss")}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  return createCompactId("t", date);
 }
 
 export function createCaptureId(date: Date = new Date()): string {
-  return `capture-${formatDateToken(date, "YYYYMMDDHHmmss")}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  return createCompactId("c", date);
 }
 
 export function trackerAnchor(id: string): string {
-  return `nexus-${id.replace(/[^0-9A-Za-z]/g, "").toLowerCase()}`;
+  return `p-${id.replace(/[^0-9]/g, "").slice(4, 14)}`;
 }
 
 export function formatTimelineLabel(id: string): string {

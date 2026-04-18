@@ -8,9 +8,11 @@ import { GoalService } from "./services/goal-service";
 import { TaskService } from "./services/task-service";
 import type {
   CaptureEntry,
+  CaptureTriageStatus,
   GoalSummary,
   GoalTrackerStatus,
   ManagedTask,
+  NexusPluginData,
   NexusSettings,
   NexusState,
   NexusViewController
@@ -49,6 +51,7 @@ function normalizeGoalToken(value: string, locale: string): string {
 
 export default class NexusCommandPlugin extends Plugin implements NexusViewController {
   settings: NexusSettings = { ...DEFAULT_SETTINGS };
+  captureTriage: Record<string, CaptureTriageStatus> = {};
   readonly state = writable<NexusState>(createInitialState(DEFAULT_SETTINGS));
   latestState = createInitialState(DEFAULT_SETTINGS);
 
@@ -270,13 +273,17 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
   }
 
   async loadSettings(): Promise<void> {
-    const loaded = await this.loadData();
+    const loaded = (await this.loadData()) as NexusPluginData | Partial<NexusSettings> | null;
+    const loadedSettings =
+      loaded && "settings" in loaded ? (loaded.settings ?? {}) : ((loaded ?? {}) as Partial<NexusSettings>);
     const merged = {
       ...DEFAULT_SETTINGS,
-      ...(loaded ?? {})
+      ...loadedSettings
     };
     const normalized = normalizeSettingsWritePaths(this.app, merged, DEFAULT_SETTINGS);
     this.settings = normalized.settings;
+    this.captureTriage =
+      loaded && "captureTriage" in loaded && loaded.captureTriage ? { ...loaded.captureTriage } : {};
     this.settingsCorrections = normalized.correctedFields;
     this.pushState({
       settings: this.settings
@@ -287,11 +294,25 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     assertSafeFolderPath(this.app, this.settings.dailyNoteFolder, "Daily Note 文件夹");
     assertSafeMarkdownPath(this.app, this.settings.globalTodoPath, "全局待办路径");
     assertSafeFolderPath(this.app, this.settings.goalRootFolder, "目标根目录");
-    await this.saveData(this.settings);
+    await this.savePluginData();
     this.pushState({
       settings: this.settings
     });
     this.scheduleRefresh(20);
+  }
+
+  getCaptureTriageStatus(captureId: string): CaptureTriageStatus | undefined {
+    return this.captureTriage[captureId];
+  }
+
+  async setCaptureTriageStatus(captureId: string, triageStatus: CaptureTriageStatus): Promise<void> {
+    if (triageStatus === "pending") {
+      delete this.captureTriage[captureId];
+    } else {
+      this.captureTriage[captureId] = triageStatus;
+    }
+
+    await this.savePluginData();
   }
 
   private pushState(partial: Partial<NexusState>): void {
@@ -325,6 +346,13 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
         error: message
       });
     }
+  }
+
+  private async savePluginData(): Promise<void> {
+    await this.saveData({
+      settings: this.settings,
+      captureTriage: this.captureTriage
+    } satisfies NexusPluginData);
   }
 
   private parseCaptureCommand(rawInput: string): ParsedCaptureCommand {
