@@ -19,6 +19,12 @@
       task: ManagedTask;
       completed: boolean;
     };
+    deleteTask: {
+      task: ManagedTask;
+    };
+    reorderTasks: {
+      tasks: ManagedTask[];
+    };
     tracker: {
       goalIndexPath: string;
       status: "yellow" | "green" | "red";
@@ -62,11 +68,7 @@
 <article class:archived={goal.status === "archived"} class="goal-card">
   <button class="goal-card__header" type="button" on:click={() => dispatch("toggle")}>
     <div class="goal-card__title">
-      <span
-        class="goal-card__dot"
-        data-status={goal.latestStatus ?? "idle"}
-        aria-hidden="true"
-      ></span>
+      <span class="goal-card__dot" data-status={goal.latestStatus ?? "idle"} aria-hidden="true"></span>
       <div>
         <strong>{goal.name}</strong>
         <small>{goal.status === "archived" ? "已归档" : "活跃目标"}</small>
@@ -81,7 +83,7 @@
     <div class="goal-card__body">
       <div class="goal-card__heatmap">
         {#if goal.heatmap.length === 0}
-          <p class="task-list__empty">暂无提交热力图</p>
+          <p class="task-list__empty">暂无进展热力图</p>
         {:else}
           {#each goal.heatmap as cell (cell.date)}
             <button
@@ -120,8 +122,12 @@
 
       <TaskList
         tasks={goal.goalTasks}
+        reorderable={true}
+        deletable={true}
         emptyText="这个目标还没有待办"
         on:toggle={(event) => dispatch("toggleTask", event.detail)}
+        on:delete={(event) => dispatch("deleteTask", event.detail)}
+        on:reorder={(event) => dispatch("reorderTasks", event.detail)}
       />
 
       <button

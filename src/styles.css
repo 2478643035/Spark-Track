@@ -395,10 +395,52 @@ button:disabled {
   padding: 10px 12px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.54);
+  transition: box-shadow 120ms ease, opacity 120ms ease;
 }
 
 .task-list__row.done {
   opacity: 0.72;
+}
+
+.task-list__row.dragging {
+  opacity: 0.5;
+}
+
+.task-list__row.drag-over-before {
+  box-shadow: inset 0 3px 0 var(--nexus-accent);
+}
+
+.task-list__row.drag-over-after {
+  box-shadow: inset 0 -3px 0 var(--nexus-accent);
+}
+
+.task-list__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.task-list__drag,
+.task-list__delete {
+  flex: 0 0 auto;
+}
+
+.task-list__drag {
+  cursor: grab;
+  padding: 8px 10px;
+  color: var(--nexus-muted);
+  user-select: none;
+}
+
+.task-list__drag:active {
+  cursor: grabbing;
+}
+
+.task-list__delete {
+  padding: 8px 10px;
+  color: var(--nexus-red);
 }
 
 .task-list__content {

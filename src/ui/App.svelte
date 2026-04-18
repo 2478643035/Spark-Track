@@ -566,6 +566,8 @@
               on:toggle={() => toggleGoal(goal.indexPath)}
               on:addTask={(event) => controller.createGoalTask(event.detail.goalIndexPath, event.detail.text)}
               on:toggleTask={(event) => controller.toggleTask(event.detail.task, event.detail.completed)}
+              on:deleteTask={(event) => controller.deleteTask(event.detail.task)}
+              on:reorderTasks={(event) => controller.reorderTasks(event.detail.tasks)}
               on:tracker={(event) => openTrackerModal(event.detail.goalIndexPath, event.detail.status)}
               on:resolve={(event) => openResolveModal(event.detail.goalIndexPath, event.detail.blockerId)}
               on:archive={(event) => controller.archiveGoal(event.detail.goalIndexPath)}

@@ -142,6 +142,52 @@ export class TaskService {
     });
   }
 
+  async deleteTask(task: ManagedTask): Promise<void> {
+    const file = this.plugin.app.vault.getAbstractFileByPath(task.targetPath);
+    if (!(file instanceof TFile)) {
+      return;
+    }
+
+    const spec = this.getSpec(task.blockType);
+
+    await this.plugin.app.vault.process(file, (content) => {
+      const existingTasks = parseTaskLines({
+        body: readBlock(content, spec) ?? "",
+        targetPath: file.path,
+        blockType: task.blockType,
+        goalName: task.goalName
+      });
+
+      const nextBody = this.renderTaskBlock(existingTasks.filter((entry) => entry.id !== task.id));
+      return replaceBlock(content, spec, nextBody);
+    });
+  }
+
+  async reorderTasks(tasks: ManagedTask[]): Promise<void> {
+    if (tasks.length === 0) {
+      return;
+    }
+
+    const [firstTask] = tasks;
+    const file = this.plugin.app.vault.getAbstractFileByPath(firstTask.targetPath);
+    if (!(file instanceof TFile)) {
+      return;
+    }
+
+    const sameBlock = tasks.every(
+      (task) => task.targetPath === firstTask.targetPath && task.blockType === firstTask.blockType
+    );
+    if (!sameBlock) {
+      throw new Error("任务重排必须在同一个任务区块内完成。");
+    }
+
+    const spec = this.getSpec(firstTask.blockType);
+
+    await this.plugin.app.vault.process(file, (content) =>
+      replaceBlock(content, spec, this.renderTaskBlock(tasks))
+    );
+  }
+
   readTasksFromFile(
     file: TFile,
     blockType: TaskBlockType,
@@ -177,5 +223,21 @@ export class TaskService {
     }
 
     return this.dailyNoteService.getDailyNoteFile(new Date(), create);
+  }
+
+  private getSpec(blockType: TaskBlockType) {
+    return blockType === "life" ? CONTROLLED_BLOCKS.lifeTasks : CONTROLLED_BLOCKS.goalTasks;
+  }
+
+  private renderTaskBlock(tasks: ManagedTask[]): string {
+    return tasks
+      .map((task) =>
+        renderTaskLine({
+          completed: task.completed,
+          text: task.text,
+          taskId: task.id
+        })
+      )
+      .join("\n");
   }
 }

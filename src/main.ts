@@ -98,7 +98,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     this.registerEvent(this.app.metadataCache.on("changed", () => this.scheduleRefresh()));
 
     if (this.settingsCorrections.length > 0) {
-      new Notice("检测到危险写入路径，已自动重置为安全默认目录。");
+      new Notice("Unsafe write paths were reset to safe defaults.");
     }
 
     await this.refreshState();
@@ -160,7 +160,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
       this.pushState({
         ready: true,
         loading: false,
-        error: error instanceof Error ? error.message : "插件刷新失败。"
+        error: error instanceof Error ? error.message : "Plugin refresh failed."
       });
     }
   }
@@ -194,28 +194,25 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
         status: command.status,
         note: command.note
       });
-    }, "闪念处理失败。");
+    }, "Capture processing failed.");
   }
 
   async markCaptureKept(capture: CaptureEntry): Promise<void> {
-    await this.runAction(
-      () => this.dailyNoteService.updateCaptureStatus(capture, "kept"),
-      "闪念状态更新失败。"
-    );
+    await this.runAction(() => this.dailyNoteService.updateCaptureStatus(capture, "kept"), "Capture update failed.");
   }
 
   async convertCaptureToLifeTask(capture: CaptureEntry): Promise<void> {
     await this.runAction(async () => {
       await this.taskService.createLifeTask(capture.text, basenameWithoutExtension(capture.sourcePath));
       await this.dailyNoteService.updateCaptureStatus(capture, "life-task");
-    }, "闪念转日常任务失败。");
+    }, "Converting capture to life task failed.");
   }
 
   async convertCaptureToGoalTask(capture: CaptureEntry, goalIndexPath: string): Promise<void> {
     await this.runAction(async () => {
       await this.taskService.createGoalTask(goalIndexPath, capture.text);
       await this.dailyNoteService.updateCaptureStatus(capture, "goal-task");
-    }, "闪念转目标任务失败。");
+    }, "Converting capture to goal task failed.");
   }
 
   async convertCaptureToGoalTracker(input: {
@@ -230,26 +227,31 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
         note: input.capture.text
       });
       await this.dailyNoteService.updateCaptureStatus(input.capture, `tracker-${input.status}`);
-    }, "闪念转进展失败。");
+    }, "Converting capture to tracker update failed.");
   }
 
   async createLifeTask(text: string): Promise<void> {
-    await this.runAction(
-      () => this.taskService.createLifeTask(text, this.getActiveNoteName()),
-      "日常任务创建失败。"
-    );
+    await this.runAction(() => this.taskService.createLifeTask(text, this.getActiveNoteName()), "Life task creation failed.");
   }
 
   async createGoalTask(goalIndexPath: string, text: string): Promise<void> {
-    await this.runAction(() => this.taskService.createGoalTask(goalIndexPath, text), "目标任务创建失败。");
+    await this.runAction(() => this.taskService.createGoalTask(goalIndexPath, text), "Goal task creation failed.");
   }
 
   async toggleTask(task: ManagedTask, completed: boolean): Promise<void> {
-    await this.runAction(() => this.taskService.toggleTask(task, completed), "任务状态同步失败。");
+    await this.runAction(() => this.taskService.toggleTask(task, completed), "Task update failed.");
+  }
+
+  async deleteTask(task: ManagedTask): Promise<void> {
+    await this.runAction(() => this.taskService.deleteTask(task), "Task deletion failed.");
+  }
+
+  async reorderTasks(tasks: ManagedTask[]): Promise<void> {
+    await this.runAction(() => this.taskService.reorderTasks(tasks), "Task reorder failed.");
   }
 
   async createGoal(name: string): Promise<void> {
-    await this.runAction(() => this.goalService.createGoal(name), "目标创建失败。");
+    await this.runAction(() => this.goalService.createGoal(name), "Goal creation failed.");
   }
 
   async submitGoalTracker(input: {
@@ -257,7 +259,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     status: GoalTrackerStatus;
     note: string;
   }): Promise<void> {
-    await this.runAction(() => this.goalService.submitTracker(input), "进度提交失败。");
+    await this.runAction(() => this.goalService.submitTracker(input), "Tracker submission failed.");
   }
 
   async resolveBlocker(input: {
@@ -265,11 +267,11 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     blockerId: string;
     note: string;
   }): Promise<void> {
-    await this.runAction(() => this.goalService.resolveBlocker(input), "卡点解决记录失败。");
+    await this.runAction(() => this.goalService.resolveBlocker(input), "Resolving blocker failed.");
   }
 
   async archiveGoal(goalIndexPath: string): Promise<void> {
-    await this.runAction(() => this.goalService.archiveGoal(goalIndexPath), "目标归档失败。");
+    await this.runAction(() => this.goalService.archiveGoal(goalIndexPath), "Archiving goal failed.");
   }
 
   async loadSettings(): Promise<void> {
@@ -291,9 +293,9 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
   }
 
   async saveSettings(): Promise<void> {
-    assertSafeFolderPath(this.app, this.settings.dailyNoteFolder, "Daily Note 文件夹");
-    assertSafeMarkdownPath(this.app, this.settings.globalTodoPath, "全局待办路径");
-    assertSafeFolderPath(this.app, this.settings.goalRootFolder, "目标根目录");
+    assertSafeFolderPath(this.app, this.settings.dailyNoteFolder, "Daily Note folder");
+    assertSafeMarkdownPath(this.app, this.settings.globalTodoPath, "Global todo path");
+    assertSafeFolderPath(this.app, this.settings.goalRootFolder, "Goal root folder");
     await this.savePluginData();
     this.pushState({
       settings: this.settings
@@ -369,7 +371,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     const rest = restParts.join(" ").trim();
 
     if (!rest) {
-      throw new Error("命令需要带内容。");
+      throw new Error("Command content cannot be empty.");
     }
 
     if (command === "/note") {
@@ -399,7 +401,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
         : [null, rest];
 
       if (!notePart) {
-        throw new Error("进展命令需要备注内容。");
+        throw new Error("Tracker note cannot be empty.");
       }
 
       return {
@@ -410,7 +412,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
       };
     }
 
-    throw new Error("未知命令。支持 /todo /goal /note /yellow /green /red");
+    throw new Error("Unknown command. Supported: /todo /goal /note /yellow /green /red");
   }
 
   private resolveGoalTarget(goalName: string | null, selectedGoalIndexPath: string | null): GoalSummary {
@@ -437,10 +439,10 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
       }
 
       if (fuzzyMatches.length > 1) {
-        throw new Error(`目标名「${goalName}」不唯一，请写完整名称。`);
+        throw new Error(`Goal name "${goalName}" is ambiguous. Please use the full goal name.`);
       }
 
-      throw new Error(`未找到目标「${goalName}」。`);
+      throw new Error(`Goal "${goalName}" was not found.`);
     }
 
     if (selectedGoalIndexPath) {
@@ -454,7 +456,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
       return activeGoals[0];
     }
 
-    throw new Error("请先选择目标，或在命令里写成“目标名 | 内容”。");
+    throw new Error("Please select a goal first, or use the format 'goal name | note'.");
   }
 
   private getActiveNoteName(): string | null {
