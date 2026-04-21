@@ -388,6 +388,170 @@ button:disabled {
   color: var(--nexus-red);
 }
 
+.review-grid,
+.review-action-list,
+.health-list {
+  display: grid;
+  gap: 10px;
+}
+
+.review-card,
+.review-stat {
+  border: 1px solid var(--nexus-border);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.review-hero {
+  display: grid;
+  gap: 8px;
+  background:
+    radial-gradient(circle at top right, rgba(47, 143, 91, 0.18), transparent 38%),
+    rgba(255, 255, 255, 0.62);
+}
+
+.review-hero p,
+.review-action p {
+  margin: 0;
+  color: var(--nexus-ink);
+  line-height: 1.45;
+}
+
+.review-closeout {
+  display: grid;
+  gap: 10px;
+}
+
+.review-closeout textarea {
+  width: 100%;
+  min-height: 80px;
+  border: 1px solid var(--nexus-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--nexus-ink);
+  font: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.review-card small,
+.review-stat span,
+.health-item small {
+  color: var(--nexus-muted);
+}
+
+.review-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.review-stat {
+  display: grid;
+  gap: 6px;
+}
+
+.review-stat strong {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.review-card__header,
+.review-action,
+.health-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.review-card__header {
+  margin-bottom: 10px;
+}
+
+.review-heat {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.review-day {
+  min-height: 58px;
+  display: grid;
+  align-content: space-between;
+  justify-items: center;
+  gap: 2px;
+  border-radius: 14px;
+  padding: 8px 4px;
+  background: rgba(120, 104, 91, 0.12);
+  color: var(--nexus-muted);
+}
+
+.review-day[data-status="yellow"] {
+  background: rgba(217, 161, 30, 0.18);
+  color: #7a5b12;
+}
+
+.review-day[data-status="green"] {
+  background: rgba(47, 143, 91, 0.16);
+  color: var(--nexus-green);
+}
+
+.review-day[data-status="red"] {
+  background: rgba(191, 64, 64, 0.14);
+  color: var(--nexus-red);
+}
+
+.review-day strong {
+  color: inherit;
+}
+
+.health-item,
+.review-action {
+  padding: 10px 0;
+  border-top: 1px solid rgba(80, 57, 33, 0.08);
+}
+
+.health-item:first-child,
+.review-action:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.health-item > div,
+.review-action > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.health-item > span {
+  min-width: 42px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: rgba(47, 143, 91, 0.12);
+  color: var(--nexus-green);
+  text-align: center;
+  font-weight: 700;
+}
+
+.health-item[data-health="watch"] > span {
+  background: rgba(217, 161, 30, 0.16);
+  color: #8a6407;
+}
+
+.health-item[data-health="stale"] > span,
+.health-item[data-health="blocked"] > span {
+  background: rgba(191, 64, 64, 0.12);
+  color: var(--nexus-red);
+}
+
+.review-action button {
+  flex: 0 0 auto;
+}
+
 .task-list__row {
   display: flex;
   align-items: flex-start;

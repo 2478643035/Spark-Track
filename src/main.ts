@@ -41,7 +41,8 @@ function createInitialState(settings: NexusSettings): NexusState {
     goals: [],
     captures: [],
     blockers: [],
-    suggestions: []
+    suggestions: [],
+    review: null
   };
 }
 
@@ -154,6 +155,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
       ]);
       const blockers = this.goalService.buildAgedBlockers(goals);
       const suggestions = this.goalService.buildSuggestions(goals, blockers);
+      const review = this.goalService.buildWeeklyReview(goals, blockers, suggestions);
 
       this.pushState({
         ready: true,
@@ -167,7 +169,8 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
         goals,
         captures,
         blockers,
-        suggestions
+        suggestions,
+        review
       });
     } catch (error) {
       console.error(`${PLUGIN_ID}: refresh failed`, error);
@@ -286,6 +289,10 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
 
   async archiveGoal(goalIndexPath: string): Promise<void> {
     await this.runAction(() => this.goalService.archiveGoal(goalIndexPath), "Archiving goal failed.");
+  }
+
+  async completeWeeklyReview(note: string): Promise<void> {
+    await this.runAction(() => this.goalService.completeWeeklyReview(note), "Completing weekly review failed.");
   }
 
   async loadSettings(): Promise<void> {

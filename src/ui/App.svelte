@@ -5,10 +5,12 @@
   import type {
     ActionPanelMode,
     CaptureEntry,
+    GoalReviewMetric,
     GoalSummary,
     GoalTrackerStatus,
     NexusState,
-    NexusViewController
+    NexusViewController,
+    ReviewAction
   } from "../types";
   import AccordionSection from "./components/AccordionSection.svelte";
   import GoalCard from "./components/GoalCard.svelte";
@@ -21,10 +23,12 @@
   let selectedChipIds = new Set<string>();
   let actionMode: ActionPanelMode = "life";
   let actionTaskText = "";
+  let reviewNoteText = "";
   let selectedGoalIndexPath = "";
   let inboxOpen = true;
   let actionOpen = false;
   let radarOpen = true;
+  let reviewOpen = true;
   let goalsOpen = false;
   let expandedGoals = new Set<string>();
   let goalModalOpen = false;
@@ -58,6 +62,7 @@
   $: captures = state?.captures ?? [];
   $: blockers = state?.blockers ?? [];
   $: suggestions = state?.suggestions ?? [];
+  $: review = state?.review ?? null;
   $: selectedGoal = activeGoals.find((goal) => goal.indexPath === selectedGoalIndexPath) ?? null;
   $: modalSelectedGoal = activeGoals.find((goal) => goal.indexPath === modalGoalIndexPath) ?? null;
   $: commandSummary = summarizeCommand(captureText, selectedGoal ? goalOptionLabel(selectedGoal) : null);
@@ -283,6 +288,62 @@
 
     return "提交";
   }
+  function formatReviewPercent(value: number): string {
+    return `${Math.round(value * 100)}%`;
+  }
+
+  function healthLabel(level: GoalReviewMetric["healthLevel"]): string {
+    switch (level) {
+      case "blocked":
+        return "阻塞";
+      case "stale":
+        return "停滞";
+      case "watch":
+        return "观察";
+      default:
+        return "健康";
+    }
+  }
+
+  function reviewActionLabel(action: ReviewAction): string {
+    if (action.kind === "resolve-blocker") {
+      return "破局";
+    }
+
+    if (action.kind === "archive-candidate") {
+      return "归档";
+    }
+
+    return "补进展";
+  }
+
+  function runReviewAction(action: ReviewAction) {
+    if (action.kind === "resolve-blocker" && action.goalIndexPath && action.blockerId) {
+      openResolveModal(action.goalIndexPath, action.blockerId);
+      return;
+    }
+
+    if (action.goalIndexPath) {
+      openTrackerModal(action.goalIndexPath, "green");
+    }
+  }
+
+  async function archiveReviewCandidate(action: ReviewAction) {
+    if (!action.goalIndexPath) {
+      return;
+    }
+
+    await run(async () => {
+      await controller.archiveGoal(action.goalIndexPath!);
+    });
+  }
+
+  async function submitWeeklyReview() {
+    await run(async () => {
+      await controller.completeWeeklyReview(reviewNoteText);
+      reviewNoteText = "";
+    });
+  }
 </script>
 
 {#if !state}
@@ -492,6 +553,164 @@
           {/if}
         </section>
       </div>
+    </AccordionSection>
+
+    <AccordionSection
+      title="Review 复盘"
+      subtitle={review ? `${review.windowStart.slice(5)} - ${review.windowEnd.slice(5)} 周复盘闭环` : "周复盘、健康度、下周动作"}
+      count={review ? review.nextActions.length + review.archiveCandidates.length : 0}
+      open={reviewOpen}
+      on:toggle={() => (reviewOpen = !reviewOpen)}
+    >
+      {#if !review}
+        <p class="task-list__empty">复盘数据还在生成。</p>
+      {:else}
+        <div class="review-grid">
+          <section class="review-card review-hero">
+            <div>
+              <strong>本周结论</strong>
+              <small>
+                {review.reviewedThisWindow
+                  ? `本周已完成复盘：${review.lastReviewedAt}`
+                  : `${review.generatedAt} 生成，尚未完成本周复盘`}
+              </small>
+            </div>
+            <p>
+              {review.activeGoalCount} 个活跃目标，近 7 天 {review.weeklyCommitCount} 次推进，
+              卡点解决率 {review.openedBlockerCount === 0 ? "无新卡点" : formatReviewPercent(review.blockerResolutionRate)}。
+            </p>
+          </section>
+
+          <section class="review-card review-closeout">
+            <header class="review-card__header">
+              <strong>完成本周复盘</strong>
+              <small>写入 active 目标的 optional frontmatter</small>
+            </header>
+            <textarea
+              bind:value={reviewNoteText}
+              placeholder="一句话写下下周主线、该砍掉的方向，或本周复盘结论"
+              rows="3"
+            ></textarea>
+            <button class="primary" disabled={busy || review.activeGoalCount === 0} type="button" on:click={submitWeeklyReview}>
+              {review.reviewedThisWindow ? "更新复盘记录" : "完成复盘"}
+            </button>
+          </section>
+
+          <section class="review-stat-grid">
+            <article class="review-stat">
+              <span>活跃目标</span>
+              <strong>{review.activeGoalCount}</strong>
+            </article>
+            <article class="review-stat">
+              <span>近 7 天提交</span>
+              <strong>{review.weeklyCommitCount}</strong>
+            </article>
+            <article class="review-stat">
+              <span>待复盘停滞</span>
+              <strong>{review.staleGoalCount}</strong>
+            </article>
+            <article class="review-stat">
+              <span>卡点解决</span>
+              <strong>{review.resolvedBlockerCount}/{review.openedBlockerCount}</strong>
+            </article>
+          </section>
+
+          <section class="review-card">
+            <header class="review-card__header">
+              <strong>近 7 天推进热区</strong>
+              <small>
+                🟡 {review.statusCounts.yellow} · 🟢 {review.statusCounts.green} · 🔴 {review.statusCounts.red}
+              </small>
+            </header>
+            <div class="review-heat">
+              {#each review.heat as day (day.date)}
+                <div class="review-day" data-status={day.dominantStatus ?? "idle"}>
+                  <span>{day.label}</span>
+                  <strong>{day.count}</strong>
+                  <small>{day.dominantStatus ? TRACKER_STATUS_META[day.dominantStatus].icon : "·"}</small>
+                </div>
+              {/each}
+            </div>
+          </section>
+
+          <section class="review-card">
+            <header class="review-card__header">
+              <strong>目标健康度</strong>
+              <small>分数越低越该复盘</small>
+            </header>
+
+            {#if review.goalMetrics.length === 0}
+              <p class="task-list__empty">没有活跃目标。</p>
+            {:else}
+              <div class="health-list">
+                {#each review.goalMetrics.slice(0, 5) as metric (metric.goalIndexPath)}
+                  <article class="health-item" data-health={metric.healthLevel}>
+                    <div>
+                      <strong>{metric.goalName}</strong>
+                      <small>{healthLabel(metric.healthLevel)} · {metric.reason}</small>
+                    </div>
+                    <span>{metric.healthScore}</span>
+                  </article>
+                {/each}
+              </div>
+            {/if}
+          </section>
+
+          <section class="review-card">
+            <header class="review-card__header">
+              <strong>下周应该推进什么</strong>
+              <small>按卡点、任务、停滞排序</small>
+            </header>
+
+            {#if review.nextActions.length === 0}
+              <p class="task-list__empty">没有必须推进的动作，可以补一个新目标或归档旧目标。</p>
+            {:else}
+              <div class="review-action-list">
+                {#each review.nextActions as action (action.id)}
+                  <article class="review-action">
+                    <div>
+                      <strong>{action.title}</strong>
+                      <p>{action.detail}</p>
+                    </div>
+                    {#if action.goalIndexPath}
+                      <button type="button" on:click={() => runReviewAction(action)}>
+                        {reviewActionLabel(action)}
+                      </button>
+                    {/if}
+                  </article>
+                {/each}
+              </div>
+            {/if}
+          </section>
+
+          <section class="review-card">
+            <header class="review-card__header">
+              <strong>该砍什么 / 该归档什么</strong>
+              <small>不删除历史，只改 archived</small>
+            </header>
+
+            {#if review.archiveCandidates.length === 0}
+              <p class="task-list__empty">暂时没有明确归档候选。</p>
+            {:else}
+              <div class="review-action-list">
+                {#each review.archiveCandidates as candidate (candidate.id)}
+                  <article class="review-action">
+                    <div>
+                      <strong>{candidate.title}</strong>
+                      <p>{candidate.detail}</p>
+                    </div>
+                    {#if candidate.goalIndexPath}
+                      <button disabled={busy} type="button" on:click={() => archiveReviewCandidate(candidate)}>
+                        归档
+                      </button>
+                    {/if}
+                  </article>
+                {/each}
+              </div>
+            {/if}
+          </section>
+        </div>
+      {/if}
     </AccordionSection>
 
     <AccordionSection

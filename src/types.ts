@@ -7,6 +7,8 @@ export type ActionPanelMode = "life" | "goal";
 export type TaskBlockType = "life" | "goal";
 export type GoalLifecycleStatus = "active" | "archived";
 export type GoalTrackerStatus = "yellow" | "green" | "red";
+export type ReviewHealthLevel = "good" | "watch" | "stale" | "blocked";
+export type ReviewActionKind = "resolve-blocker" | "advance-task" | "refresh-stale" | "archive-candidate";
 export type CaptureTriageStatus =
   | "pending"
   | "kept"
@@ -79,6 +81,9 @@ export interface GoalIndexFrontmatter {
   created_at: string;
   goal_name: string;
   tracker_data: TrackerEntry[];
+  reviewed_at?: string | null;
+  last_reviewed_at?: string | null;
+  review_notes?: string | null;
 }
 
 export interface HeatmapCell {
@@ -101,6 +106,9 @@ export interface GoalSummary {
   latestStatus: GoalTrackerStatus | null;
   latestTrackerId?: string | null;
   latestActivityDate?: string | null;
+  reviewedAt?: string | null;
+  lastReviewedAt?: string | null;
+  reviewNotes?: string | null;
   heatmap: HeatmapCell[];
 }
 
@@ -122,6 +130,56 @@ export interface NexusSuggestion {
   blockerId?: string;
 }
 
+export interface ReviewHeatDay {
+  date: string;
+  label: string;
+  count: number;
+  dominantStatus: GoalTrackerStatus | null;
+}
+
+export interface GoalReviewMetric {
+  goalIndexPath: string;
+  goalName: string;
+  healthScore: number;
+  healthLevel: ReviewHealthLevel;
+  latestActivityDate: string | null;
+  quietDays: number;
+  weeklyCommits: number;
+  openBlockers: number;
+  completedTasks: number;
+  openTasks: number;
+  reason: string;
+}
+
+export interface ReviewAction {
+  id: string;
+  kind: ReviewActionKind;
+  title: string;
+  detail: string;
+  goalIndexPath?: string;
+  blockerId?: string;
+}
+
+export interface WeeklyReviewSummary {
+  generatedAt: string;
+  windowStart: string;
+  windowEnd: string;
+  activeGoalCount: number;
+  archivedGoalCount: number;
+  weeklyCommitCount: number;
+  statusCounts: Record<GoalTrackerStatus, number>;
+  openedBlockerCount: number;
+  resolvedBlockerCount: number;
+  blockerResolutionRate: number;
+  reviewedThisWindow: boolean;
+  lastReviewedAt: string | null;
+  staleGoalCount: number;
+  heat: ReviewHeatDay[];
+  goalMetrics: GoalReviewMetric[];
+  nextActions: ReviewAction[];
+  archiveCandidates: ReviewAction[];
+}
+
 export interface NexusState {
   ready: boolean;
   loading: boolean;
@@ -135,6 +193,7 @@ export interface NexusState {
   captures?: CaptureEntry[];
   blockers?: AgedBlocker[];
   suggestions?: NexusSuggestion[];
+  review?: WeeklyReviewSummary | null;
 }
 
 export interface NexusViewController {
@@ -170,5 +229,6 @@ export interface NexusViewController {
     blockerId: string;
     note: string;
   }): Promise<void>;
+  completeWeeklyReview(note: string): Promise<void>;
   archiveGoal(goalIndexPath: string): Promise<void>;
 }
