@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile } from "obsidian";
 import { writable } from "svelte/store";
 import { CAPTURE_CHIPS, DEFAULT_SETTINGS, PLUGIN_ID, VIEW_TITLE, VIEW_TYPE } from "./constants";
 import "./styles.css";
@@ -60,6 +60,7 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
   private goalService!: GoalService;
   private refreshTimer: number | null = null;
   private settingsCorrections: string[] = [];
+  private activeMarkdownFile: TFile | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -90,7 +91,20 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
 
     this.addSettingTab(new NexusSettingTab(this.app, this));
 
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleRefresh(80)));
+    this.updateActiveMarkdownFile();
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.updateActiveMarkdownFile();
+        this.scheduleRefresh(80);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("file-open", () => {
+        this.updateActiveMarkdownFile();
+        this.scheduleRefresh(80);
+      })
+    );
     this.registerEvent(this.app.vault.on("create", () => this.scheduleRefresh()));
     this.registerEvent(this.app.vault.on("modify", () => this.scheduleRefresh()));
     this.registerEvent(this.app.vault.on("delete", () => this.scheduleRefresh()));
@@ -307,6 +321,11 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     return this.captureTriage[captureId];
   }
 
+  getActiveMarkdownFile(): TFile | null {
+    this.updateActiveMarkdownFile();
+    return this.activeMarkdownFile;
+  }
+
   async setCaptureTriageStatus(captureId: string, triageStatus: CaptureTriageStatus): Promise<void> {
     if (triageStatus === "pending") {
       delete this.captureTriage[captureId];
@@ -460,8 +479,20 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
   }
 
   private getActiveNoteName(): string | null {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    return view?.file?.basename ?? null;
+    return this.getActiveMarkdownFile()?.basename ?? null;
+  }
+
+  private updateActiveMarkdownFile(): void {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile instanceof TFile && activeFile.extension === "md") {
+      this.activeMarkdownFile = activeFile;
+      return;
+    }
+
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeMarkdownView?.file instanceof TFile && activeMarkdownView.file.extension === "md") {
+      this.activeMarkdownFile = activeMarkdownView.file;
+    }
   }
 
   private getGoalAliases(goal: GoalSummary): string[] {
