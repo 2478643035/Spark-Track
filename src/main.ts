@@ -218,6 +218,10 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     await this.runAction(() => this.dailyNoteService.updateCaptureStatus(capture, "kept"), "Capture update failed.");
   }
 
+  async deleteCapture(capture: CaptureEntry): Promise<void> {
+    await this.runAction(() => this.dailyNoteService.deleteCapture(capture), "Capture deletion failed.");
+  }
+
   async convertCaptureToLifeTask(capture: CaptureEntry): Promise<void> {
     await this.runAction(async () => {
       await this.taskService.createLifeTask(capture.text, basenameWithoutExtension(capture.sourcePath));

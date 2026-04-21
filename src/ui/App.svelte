@@ -353,7 +353,7 @@
     <header class="nexus-header">
       <div>
         <small>Spark Track</small>
-        <h1>侧边控制台</h1>
+        <h1>控制台</h1>
       </div>
       <button type="button" on:click={() => (goalModalOpen = true)}>+ 新目标</button>
     </header>
@@ -363,7 +363,7 @@
     {/if}
 
     <AccordionSection
-      title="闪念输入舱"
+      title="闪念"
       subtitle={state.activeNoteName ? `当前笔记：${state.activeNoteName}` : "静默写入当日日记"}
       open={true}
     >
@@ -404,11 +404,14 @@
           {/each}
         </div>
 
-        <div class="command-hints">
-          {#each LIGHT_COMMAND_HINTS as hint (hint)}
-            <code>{hint}</code>
-          {/each}
-        </div>
+        <details class="command-hints">
+          <summary>指令</summary>
+          <div class="command-hints__list">
+            {#each LIGHT_COMMAND_HINTS as hint (hint)}
+              <code>{hint}</code>
+            {/each}
+          </div>
+        </details>
 
         <button class="primary" disabled={busy} type="button" on:click={submitCapture}>
           提交
@@ -417,8 +420,8 @@
     </AccordionSection>
 
     <AccordionSection
-      title="Inbox"
-      subtitle="最近 capture，可二次分拣为任务或进展"
+      title="收件"
+      subtitle="最近记录，可分拣"
       count={captures.filter((capture) => capture.triageStatus === "pending").length}
       open={inboxOpen}
       on:toggle={() => (inboxOpen = !inboxOpen)}
@@ -454,8 +457,8 @@
                 </button>
               {/if}
 
-              {#if capture.triageStatus === "pending"}
-                <div class="capture-item__actions">
+              <div class="capture-item__actions">
+                {#if capture.triageStatus === "pending"}
                   <button type="button" on:click={() => controller.convertCaptureToLifeTask(capture)}>
                     转日常任务
                   </button>
@@ -476,8 +479,11 @@
                   <button type="button" on:click={() => controller.markCaptureKept(capture)}>
                     保留
                   </button>
-                </div>
-              {/if}
+                {/if}
+                <button class="capture-item__delete" type="button" on:click={() => controller.deleteCapture(capture)}>
+                  删除
+                </button>
+              </div>
             </article>
           {/each}
         {/if}
@@ -485,8 +491,8 @@
     </AccordionSection>
 
     <AccordionSection
-      title="推进雷达"
-      subtitle="卡点老化 + 今日推进建议"
+      title="雷达"
+      subtitle="卡点与建议"
       count={blockers.length}
       open={radarOpen}
       on:toggle={() => (radarOpen = !radarOpen)}
@@ -556,7 +562,8 @@
     </AccordionSection>
 
     <AccordionSection
-      title="Review 复盘"
+      title="复盘"
+      variant="review"
       subtitle={review ? `${review.windowStart.slice(5)} - ${review.windowEnd.slice(5)} 周复盘闭环` : "周复盘、健康度、下周动作"}
       count={review ? review.nextActions.length + review.archiveCandidates.length : 0}
       open={reviewOpen}
@@ -714,8 +721,8 @@
     </AccordionSection>
 
     <AccordionSection
-      title="双轨控制台"
-      subtitle="任务只同步插件管理区块"
+      title="行动"
+      subtitle="日常与目标任务"
       count={actionMode === "life" ? state.lifeTasks.length : state.goalTasks.length}
       open={actionOpen}
       on:toggle={() => (actionOpen = !actionOpen)}
@@ -768,8 +775,8 @@
     </AccordionSection>
 
     <AccordionSection
-      title="战略目标阵列"
-      subtitle="目标索引 + 热力图 + 破局闭环"
+      title="目标"
+      subtitle="进展、任务、破局"
       count={activeGoals.length}
       open={goalsOpen}
       on:toggle={() => (goalsOpen = !goalsOpen)}

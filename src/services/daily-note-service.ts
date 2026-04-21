@@ -133,6 +133,30 @@ export class DailyNoteService {
     await this.plugin.setCaptureTriageStatus(capture.id, triageStatus);
   }
 
+  async deleteCapture(capture: Pick<CaptureEntry, "id" | "sourcePath">): Promise<void> {
+    const file = this.plugin.app.vault.getAbstractFileByPath(capture.sourcePath);
+    if (!(file instanceof TFile)) {
+      throw new Error("闪念来源文件不存在。");
+    }
+
+    await this.plugin.app.vault.process(file, (content) => {
+      const blockBody = readBlock(content, CONTROLLED_BLOCKS.capture);
+      if (!blockBody) {
+        return content;
+      }
+
+      const entries = parseCaptureEntries(blockBody, file.path).filter((entry) => entry.id !== capture.id);
+
+      return replaceBlock(
+        content,
+        CONTROLLED_BLOCKS.capture,
+        entries.map((entry) => renderCaptureEntry(entry)).join("\n\n")
+      );
+    });
+
+    await this.plugin.setCaptureTriageStatus(capture.id, "pending");
+  }
+
   private resolveDailyNoteConfig(): DailyNoteConfig {
     const official = this.resolveOfficialDailyNotes();
     if (official) {

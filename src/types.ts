@@ -205,6 +205,7 @@ export interface NexusViewController {
     chipIds: string[];
     selectedGoalIndexPath?: string | null;
   }): Promise<void>;
+  deleteCapture(capture: CaptureEntry): Promise<void>;
   markCaptureKept(capture: CaptureEntry): Promise<void>;
   convertCaptureToLifeTask(capture: CaptureEntry): Promise<void>;
   convertCaptureToGoalTask(capture: CaptureEntry, goalIndexPath: string): Promise<void>;
