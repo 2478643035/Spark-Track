@@ -134,6 +134,19 @@
   gap: 12px;
 }
 
+.capture-console,
+.capture-compose {
+  display: grid;
+}
+
+.capture-console {
+  gap: 14px;
+}
+
+.capture-compose {
+  gap: 10px;
+}
+
 .capture-box,
 .task-creator input,
 .goal-card__task-creator input,
@@ -160,6 +173,22 @@ select {
   color: var(--nexus-muted);
   font-size: 0.85rem;
   line-height: 1.45;
+}
+
+.capture-submit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.capture-submit-row .command-hints {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.capture-submit-row > .primary {
+  flex: 0 0 auto;
 }
 
 .capture-goal {
@@ -276,7 +305,7 @@ button:disabled {
 }
 
 .capture-list {
-  max-height: min(52vh, 560px);
+  max-height: min(48vh, 520px);
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -292,6 +321,14 @@ button:disabled {
 .capture-item {
   display: grid;
   gap: 10px;
+}
+
+.capture-item.triaged {
+  opacity: 0.72;
+}
+
+.capture-item.triaged .capture-item__text:not(.expanded) {
+  -webkit-line-clamp: 2;
 }
 
 .capture-item p,
@@ -388,6 +425,24 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.capture-item__actions {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.capture-item__triage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.capture-item__triage button {
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
 }
 
 .radar-grid {
@@ -709,8 +764,22 @@ button:disabled {
 
 .task-list__delete,
 .capture-item__delete {
-  padding: 8px 10px;
+  border-color: rgba(191, 64, 64, 0.08);
+  background: rgba(191, 64, 64, 0.06);
   color: var(--nexus-red);
+}
+
+.task-list__delete {
+  padding: 8px 10px;
+}
+
+.capture-item__delete {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  padding: 0;
 }
 
 .task-list__content {
@@ -875,7 +944,9 @@ button:disabled {
 
 .goal-card__archive {
   justify-self: start;
-  color: #8c5340;
+  border-color: rgba(191, 64, 64, 0.08);
+  background: rgba(191, 64, 64, 0.06);
+  color: #9c463f;
 }
 
 .modal-backdrop {
@@ -907,6 +978,10 @@ button:disabled {
 
 .modal-card textarea {
   resize: vertical;
+}
+
+.modal-textarea--readonly {
+  color: var(--nexus-muted);
 }
 
 @media (min-width: 720px) {

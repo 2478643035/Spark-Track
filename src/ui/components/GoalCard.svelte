@@ -110,13 +110,13 @@
 
       <div class="goal-card__actions">
         <button type="button" on:click={() => dispatch("tracker", { goalIndexPath: goal.indexPath, status: "yellow" })}>
-          🟡 小修补
+          🟡 小修
         </button>
         <button type="button" on:click={() => dispatch("tracker", { goalIndexPath: goal.indexPath, status: "green" })}>
-          🟢 核心突破
+          🟢 突破
         </button>
         <button type="button" on:click={() => dispatch("tracker", { goalIndexPath: goal.indexPath, status: "red" })}>
-          🔴 遇到阻碍
+          🔴 阻碍
         </button>
       </div>
 
@@ -140,7 +140,7 @@
         type="button"
         on:click={() => dispatch("archive", { goalIndexPath: goal.indexPath })}
       >
-        归档目标
+        归档
       </button>
     </div>
   {/if}

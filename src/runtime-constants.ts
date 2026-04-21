@@ -14,7 +14,7 @@ export const LIGHT_COMMAND_HINTS = [
   "/todo 买充电线",
   "/goal 书籍 TTS 工具",
   "/red 书籍 TTS 工具 | API 限流卡住",
-  "/green 今天解决方案说明"
+  "/green 书籍 TTS 工具 | 今天解决方案说明"
 ];
 
 export const CAPTURE_LOOKBACK_DAYS = 7;

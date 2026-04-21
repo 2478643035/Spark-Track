@@ -46,8 +46,8 @@ export const DEFAULT_SETTINGS: NexusSettings = {
 };
 
 export const ACTION_PANEL_OPTIONS = [
-  { id: "life", label: "日常琐事" },
-  { id: "goal", label: "进度提醒" }
+  { id: "life", label: "日常" },
+  { id: "goal", label: "目标" }
 ] as const;
 
 export const TRACKER_STATUS_META = {

@@ -33,7 +33,7 @@
   let expandedGoals = new Set<string>();
   let goalModalOpen = false;
   let goalNameText = "";
-  let modalMode: "tracker" | "capture-tracker" | "resolve" | null = null;
+  let modalMode: "tracker" | "capture-tracker" | "capture-goal-task" | "resolve" | null = null;
   let modalGoalIndexPath = "";
   let modalTrackerStatus: GoalTrackerStatus = "green";
   let modalCapture: CaptureEntry | null = null;
@@ -63,9 +63,15 @@
   $: blockers = state?.blockers ?? [];
   $: suggestions = state?.suggestions ?? [];
   $: review = state?.review ?? null;
+  $: pendingCaptureCount = captures.filter((capture) => capture.triageStatus === "pending").length;
+  $: sortedCaptures = [...captures].sort((left, right) => {
+    const leftDone = left.triageStatus === "pending" ? 0 : 1;
+    const rightDone = right.triageStatus === "pending" ? 0 : 1;
+    return leftDone - rightDone;
+  });
   $: selectedGoal = activeGoals.find((goal) => goal.indexPath === selectedGoalIndexPath) ?? null;
   $: modalSelectedGoal = activeGoals.find((goal) => goal.indexPath === modalGoalIndexPath) ?? null;
-  $: commandSummary = summarizeCommand(captureText, selectedGoal ? goalOptionLabel(selectedGoal) : null);
+  $: commandSummary = summarizeCommand(captureText);
 
   function goalFolderName(goal: GoalSummary): string {
     return goal.folderPath.split("/").pop() ?? goal.folderPath;
@@ -76,10 +82,10 @@
     return folderName === goal.name ? goal.name : `${goal.name} · ${folderName}`;
   }
 
-  function summarizeCommand(input: string, fallbackGoalName: string | null): string {
+  function summarizeCommand(input: string): string {
     const trimmed = input.trim();
     if (!trimmed.startsWith("/")) {
-      return "普通闪念，提交后进入 Inbox。";
+      return "提交后进入收件，稍后分拣。";
     }
 
     const [commandToken, ...restParts] = trimmed.split(" ");
@@ -88,17 +94,17 @@
 
     switch (command) {
       case "/todo":
-        return rest ? "命令会直接创建日常任务。": "命令会直接创建日常任务。";
+        return "直接建日常任务。";
       case "/goal":
-        return rest ? `命令会新建目标「${rest}」。` : "命令会新建一个目标。";
+        return rest ? `新建目标「${rest}」。` : "新建目标。";
       case "/note":
-        return "命令会按普通闪念归档。";
+        return "作为笔记保留。";
       case "/yellow":
       case "/green":
       case "/red": {
-        const [goalNamePart] = rest.includes("|") ? rest.split("|", 2) : [fallbackGoalName ?? "当前选中目标"];
-        const goalName = goalNamePart?.trim() || fallbackGoalName || "当前选中目标";
-        return `命令会向「${goalName}」提交 ${command.slice(1)} 状态。`;
+        const [goalNamePart] = rest.includes("|") ? rest.split("|", 2) : [null];
+        const goalName = goalNamePart?.trim();
+        return goalName ? `向「${goalName}」写入进展。` : "写入进展；多目标时用「目标 | 内容」。";
       }
       default:
         return "未知命令，支持 /todo /goal /note /yellow /green /red。";
@@ -160,8 +166,7 @@
     await run(async () => {
       await controller.submitCapture({
         text: captureText,
-        chipIds: Array.from(selectedChipIds),
-        selectedGoalIndexPath
+        chipIds: Array.from(selectedChipIds)
       });
       captureText = "";
       selectedChipIds = new Set<string>();
@@ -207,6 +212,10 @@
     modalText = "";
   }
 
+  function defaultModalGoalIndexPath(): string {
+    return selectedGoalIndexPath || activeGoals[0]?.indexPath || "";
+  }
+
   function openResolveModal(goalIndexPath: string, blockerId: string) {
     modalMode = "resolve";
     modalGoalIndexPath = goalIndexPath;
@@ -218,7 +227,16 @@
 
   function openCaptureTrackerModal(capture: CaptureEntry) {
     modalMode = "capture-tracker";
-    modalGoalIndexPath = selectedGoalIndexPath;
+    modalGoalIndexPath = defaultModalGoalIndexPath();
+    modalTrackerStatus = "green";
+    modalCapture = capture;
+    modalBlockerId = null;
+    modalText = capture.text;
+  }
+
+  function openCaptureGoalTaskModal(capture: CaptureEntry) {
+    modalMode = "capture-goal-task";
+    modalGoalIndexPath = defaultModalGoalIndexPath();
     modalTrackerStatus = "green";
     modalCapture = capture;
     modalBlockerId = null;
@@ -236,7 +254,7 @@
   }
 
   async function submitTrackerModal() {
-    if (!modalMode || !modalGoalIndexPath || !modalText.trim()) {
+    if (!modalMode || !modalGoalIndexPath || (modalMode !== "capture-goal-task" && !modalText.trim())) {
       return;
     }
 
@@ -259,6 +277,8 @@
           goalIndexPath: modalGoalIndexPath,
           status: modalTrackerStatus
         });
+      } else if (modalMode === "capture-goal-task" && modalCapture) {
+        await controller.convertCaptureToGoalTask(modalCapture, modalGoalIndexPath);
       }
 
       closeModal();
@@ -274,6 +294,10 @@
       return "闪念转进展";
     }
 
+    if (modalMode === "capture-goal-task") {
+      return "闪念转目标";
+    }
+
     return TRACKER_STATUS_META[modalTrackerStatus].label;
   }
 
@@ -284,6 +308,10 @@
 
     if (modalMode === "capture-tracker") {
       return "写入进展";
+    }
+
+    if (modalMode === "capture-goal-task") {
+      return "写入目标";
     }
 
     return "提交";
@@ -363,130 +391,122 @@
     {/if}
 
     <AccordionSection
-      title="闪念"
-      subtitle={state.activeNoteName ? `当前笔记：${state.activeNoteName}` : "静默写入当日日记"}
-      open={true}
-    >
-      <div class="panel-stack">
-        <textarea
-          bind:value={captureText}
-          class="capture-box"
-          placeholder="写灵感，或直接输入 /todo /goal /red ..."
-          rows="4"
-        ></textarea>
-
-        <p class="capture-command">{commandSummary}</p>
-
-        {#if activeGoals.length > 0}
-          <div class="capture-goal">
-            <span>命令 / Inbox 默认目标</span>
-            <select bind:value={selectedGoalIndexPath}>
-              {#each activeGoals as goal (goal.indexPath)}
-                <option value={goal.indexPath}>{goalOptionLabel(goal)}</option>
-              {/each}
-            </select>
-            {#if selectedGoal}
-              <small class="field-path">{selectedGoal.folderPath}</small>
-            {/if}
-          </div>
-        {/if}
-
-        <div class="chip-row">
-          {#each state.captureChips as chip (chip.id)}
-            <button
-              class:selected={selectedChipIds.has(chip.id)}
-              class="chip"
-              type="button"
-              on:click={() => toggleChip(chip.id)}
-            >
-              {chip.label}
-            </button>
-          {/each}
-        </div>
-
-        <details class="command-hints">
-          <summary>指令</summary>
-          <div class="command-hints__list">
-            {#each LIGHT_COMMAND_HINTS as hint (hint)}
-              <code>{hint}</code>
-            {/each}
-          </div>
-        </details>
-
-        <button class="primary" disabled={busy} type="button" on:click={submitCapture}>
-          提交
-        </button>
-      </div>
-    </AccordionSection>
-
-    <AccordionSection
-      title="收件"
-      subtitle="最近记录，可分拣"
-      count={captures.filter((capture) => capture.triageStatus === "pending").length}
+      title="闪念收件"
+      subtitle={state.activeNoteName ? `当前笔记：${state.activeNoteName}` : "写入当日日记"}
+      count={pendingCaptureCount}
       open={inboxOpen}
       on:toggle={() => (inboxOpen = !inboxOpen)}
     >
-      <div class="capture-list">
-        {#if captures.length === 0}
-          <p class="task-list__empty">最近没有 capture。</p>
-        {:else}
-          {#each captures as capture (capture.id)}
-            <article class="capture-item">
-              <div class="capture-item__meta">
-                <div>
-                  <strong>{capture.timestamp}</strong>
-                  <small>{capture.chipLabels.join(" ") || "#闪念"}</small>
-                </div>
-                <span
-                  class="capture-item__status"
-                  data-tone={CAPTURE_TRIAGE_META[capture.triageStatus].tone}
-                >
-                  {CAPTURE_TRIAGE_META[capture.triageStatus].label}
-                </span>
+      <div class="capture-console">
+        <div class="capture-compose">
+          <textarea
+            bind:value={captureText}
+            class="capture-box"
+            placeholder="写灵感，或输入 /todo /goal /red ..."
+            rows="4"
+          ></textarea>
+
+          <p class="capture-command">{commandSummary}</p>
+
+          <div class="chip-row">
+            {#each state.captureChips as chip (chip.id)}
+              <button
+                class:selected={selectedChipIds.has(chip.id)}
+                class="chip"
+                type="button"
+                on:click={() => toggleChip(chip.id)}
+              >
+                {chip.label}
+              </button>
+            {/each}
+          </div>
+
+          <div class="capture-submit-row">
+            <details class="command-hints">
+              <summary>指令</summary>
+              <div class="command-hints__list">
+                {#each LIGHT_COMMAND_HINTS as hint (hint)}
+                  <code>{hint}</code>
+                {/each}
               </div>
+            </details>
 
-              <p class="capture-item__text" class:expanded={expandedCaptureIds.has(capture.id)}>{capture.text}</p>
+            <button class="primary" disabled={busy} type="button" on:click={submitCapture}>
+              提交
+            </button>
+          </div>
+        </div>
 
-              {#if isLongCapture(capture)}
-                <button
-                  class="capture-item__toggle"
-                  type="button"
-                  on:click={() => toggleCaptureExpansion(capture.id)}
-                >
-                  {expandedCaptureIds.has(capture.id) ? "收起" : "展开全文"}
-                </button>
-              {/if}
-
-              <div class="capture-item__actions">
-                {#if capture.triageStatus === "pending"}
-                  <button type="button" on:click={() => controller.convertCaptureToLifeTask(capture)}>
-                    转日常任务
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!selectedGoalIndexPath}
-                    on:click={() => controller.convertCaptureToGoalTask(capture, selectedGoalIndexPath)}
+        <div class="capture-list">
+          {#if sortedCaptures.length === 0}
+            <p class="task-list__empty">暂无收件。</p>
+          {:else}
+            {#each sortedCaptures as capture (capture.id)}
+              <article class:triaged={capture.triageStatus !== "pending"} class="capture-item">
+                <div class="capture-item__meta">
+                  <div>
+                    <strong>{capture.timestamp}</strong>
+                    <small>{capture.chipLabels.join(" ") || "#闪念"}</small>
+                  </div>
+                  <span
+                    class="capture-item__status"
+                    data-tone={CAPTURE_TRIAGE_META[capture.triageStatus].tone}
                   >
-                    转目标任务
-                  </button>
+                    {CAPTURE_TRIAGE_META[capture.triageStatus].label}
+                  </span>
+                </div>
+
+                <p class="capture-item__text" class:expanded={expandedCaptureIds.has(capture.id)}>{capture.text}</p>
+
+                {#if isLongCapture(capture)}
                   <button
+                    class="capture-item__toggle"
                     type="button"
-                    disabled={!selectedGoalIndexPath}
-                    on:click={() => openCaptureTrackerModal(capture)}
+                    on:click={() => toggleCaptureExpansion(capture.id)}
                   >
-                    转进展
-                  </button>
-                  <button type="button" on:click={() => controller.markCaptureKept(capture)}>
-                    保留
+                    {expandedCaptureIds.has(capture.id) ? "收起" : "展开全文"}
                   </button>
                 {/if}
-                <button class="capture-item__delete" type="button" on:click={() => controller.deleteCapture(capture)}>
-                  删除
-                </button>
-              </div>
-            </article>
-          {/each}
-        {/if}
+
+                <div class="capture-item__actions">
+                  {#if capture.triageStatus === "pending"}
+                    <div class="capture-item__triage">
+                      <button type="button" on:click={() => controller.convertCaptureToLifeTask(capture)}>
+                        日常
+                      </button>
+                      <button
+                        type="button"
+                        disabled={activeGoals.length === 0}
+                        on:click={() => openCaptureGoalTaskModal(capture)}
+                      >
+                        目标
+                      </button>
+                      <button
+                        type="button"
+                        disabled={activeGoals.length === 0}
+                        on:click={() => openCaptureTrackerModal(capture)}
+                      >
+                        进展
+                      </button>
+                      <button type="button" on:click={() => controller.markCaptureKept(capture)}>
+                        笔记
+                      </button>
+                    </div>
+                  {/if}
+                  <button
+                    aria-label="删除闪念"
+                    class="capture-item__delete"
+                    title="删除闪念"
+                    type="button"
+                    on:click={() => controller.deleteCapture(capture)}
+                  >
+                    🗑
+                  </button>
+                </div>
+              </article>
+            {/each}
+          {/if}
+        </div>
       </div>
     </AccordionSection>
 
@@ -500,8 +520,8 @@
       <div class="radar-grid">
         <section class="radar-card">
           <header>
-            <strong>今日推进建议</strong>
-            <small>按卡点、待办、停滞目标排序</small>
+            <strong>建议</strong>
+            <small>卡点、待办、停滞排序</small>
           </header>
 
           {#if suggestions.length === 0}
@@ -531,8 +551,8 @@
 
         <section class="radar-card">
           <header>
-            <strong>待破局卡点</strong>
-            <small>2 天以上会持续抬升优先级</small>
+            <strong>卡点</strong>
+            <small>2 天以上抬升优先级</small>
           </header>
 
           {#if blockers.length === 0}
@@ -550,7 +570,7 @@
                       {blocker.severity === "hot" ? "7d+" : "2d+"}
                     </span>
                     <button type="button" on:click={() => openResolveModal(blocker.goalIndexPath, blocker.trackerId)}>
-                      记录破局
+                      破局
                     </button>
                   </div>
                 </article>
@@ -848,7 +868,7 @@
         </div>
       {/if}
 
-      {#if modalMode !== "resolve"}
+      {#if modalMode === "tracker" || modalMode === "capture-tracker"}
         <div class="status-toggle">
           {#each Object.entries(TRACKER_STATUS_META) as [status, meta] (status)}
             <button
@@ -862,11 +882,21 @@
         </div>
       {/if}
 
-      <textarea bind:value={modalText} rows="5"></textarea>
+      <textarea
+        bind:value={modalText}
+        class:modal-textarea--readonly={modalMode === "capture-tracker" || modalMode === "capture-goal-task"}
+        readonly={modalMode === "capture-tracker" || modalMode === "capture-goal-task"}
+        rows="5"
+      ></textarea>
 
       <div class="modal-actions">
         <button type="button" on:click={closeModal}>取消</button>
-        <button class="primary" disabled={busy || !modalGoalIndexPath} type="button" on:click={submitTrackerModal}>
+        <button
+          class="primary"
+          disabled={busy || !modalGoalIndexPath || (modalMode !== "capture-goal-task" && !modalText.trim())}
+          type="button"
+          on:click={submitTrackerModal}
+        >
           {modalSubmitLabel()}
         </button>
       </div>
