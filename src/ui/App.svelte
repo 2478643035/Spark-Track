@@ -588,32 +588,17 @@
             </p>
           </section>
 
-          <section class="review-card review-closeout">
-            <header class="review-card__header">
-              <strong>完成本周复盘</strong>
-              <small>写入 active 目标的 optional frontmatter</small>
-            </header>
-            <textarea
-              bind:value={reviewNoteText}
-              placeholder="一句话写下下周主线、该砍掉的方向，或本周复盘结论"
-              rows="3"
-            ></textarea>
-            <button class="primary" disabled={busy || review.activeGoalCount === 0} type="button" on:click={submitWeeklyReview}>
-              {review.reviewedThisWindow ? "更新复盘记录" : "完成复盘"}
-            </button>
-          </section>
-
-          <section class="review-stat-grid">
+          <section class="review-stat-strip" aria-label="复盘指标">
             <article class="review-stat">
               <span>活跃目标</span>
               <strong>{review.activeGoalCount}</strong>
             </article>
             <article class="review-stat">
-              <span>近 7 天提交</span>
+              <span>7 天提交</span>
               <strong>{review.weeklyCommitCount}</strong>
             </article>
             <article class="review-stat">
-              <span>待复盘停滞</span>
+              <span>待复盘</span>
               <strong>{review.staleGoalCount}</strong>
             </article>
             <article class="review-stat">
@@ -622,48 +607,7 @@
             </article>
           </section>
 
-          <section class="review-card">
-            <header class="review-card__header">
-              <strong>近 7 天推进热区</strong>
-              <small>
-                🟡 {review.statusCounts.yellow} · 🟢 {review.statusCounts.green} · 🔴 {review.statusCounts.red}
-              </small>
-            </header>
-            <div class="review-heat">
-              {#each review.heat as day (day.date)}
-                <div class="review-day" data-status={day.dominantStatus ?? "idle"}>
-                  <span>{day.label}</span>
-                  <strong>{day.count}</strong>
-                  <small>{day.dominantStatus ? TRACKER_STATUS_META[day.dominantStatus].icon : "·"}</small>
-                </div>
-              {/each}
-            </div>
-          </section>
-
-          <section class="review-card">
-            <header class="review-card__header">
-              <strong>目标健康度</strong>
-              <small>分数越低越该复盘</small>
-            </header>
-
-            {#if review.goalMetrics.length === 0}
-              <p class="task-list__empty">没有活跃目标。</p>
-            {:else}
-              <div class="health-list">
-                {#each review.goalMetrics.slice(0, 5) as metric (metric.goalIndexPath)}
-                  <article class="health-item" data-health={metric.healthLevel}>
-                    <div>
-                      <strong>{metric.goalName}</strong>
-                      <small>{healthLabel(metric.healthLevel)} · {metric.reason}</small>
-                    </div>
-                    <span>{metric.healthScore}</span>
-                  </article>
-                {/each}
-              </div>
-            {/if}
-          </section>
-
-          <section class="review-card">
+          <section class="review-card review-card--primary">
             <header class="review-card__header">
               <strong>下周应该推进什么</strong>
               <small>按卡点、任务、停滞排序</small>
@@ -690,11 +634,67 @@
             {/if}
           </section>
 
-          <section class="review-card">
+          <section class="review-card review-closeout">
             <header class="review-card__header">
+              <strong>完成本周复盘</strong>
+              <small>写入 active 目标的 optional frontmatter</small>
+            </header>
+            <textarea
+              bind:value={reviewNoteText}
+              placeholder="一句话写下下周主线、该砍掉的方向，或本周复盘结论"
+              rows="2"
+            ></textarea>
+            <button class="primary" disabled={busy || review.activeGoalCount === 0} type="button" on:click={submitWeeklyReview}>
+              {review.reviewedThisWindow ? "更新复盘记录" : "完成复盘"}
+            </button>
+          </section>
+
+          <details class="review-card review-disclosure">
+            <summary>
+              <strong>近 7 天推进热区</strong>
+              <small>
+                🟡 {review.statusCounts.yellow} · 🟢 {review.statusCounts.green} · 🔴 {review.statusCounts.red}
+              </small>
+            </summary>
+            <div class="review-heat">
+              {#each review.heat as day (day.date)}
+                <div class="review-day" data-status={day.dominantStatus ?? "idle"}>
+                  <span>{day.label}</span>
+                  <strong>{day.count}</strong>
+                  <small>{day.dominantStatus ? TRACKER_STATUS_META[day.dominantStatus].icon : "·"}</small>
+                </div>
+              {/each}
+            </div>
+          </details>
+
+          <details class="review-card review-disclosure" open={review.staleGoalCount > 0 || review.statusCounts.red > 0}>
+            <summary>
+              <strong>目标健康度</strong>
+              <small>分数越低越该复盘</small>
+            </summary>
+
+            {#if review.goalMetrics.length === 0}
+              <p class="task-list__empty">没有活跃目标。</p>
+            {:else}
+              <div class="health-list">
+                {#each review.goalMetrics.slice(0, 5) as metric (metric.goalIndexPath)}
+                  <article class="health-item" data-health={metric.healthLevel}>
+                    <div>
+                      <strong>{metric.goalName}</strong>
+                      <small>{healthLabel(metric.healthLevel)} · {metric.reason}</small>
+                    </div>
+                    <span>{metric.healthScore}</span>
+                  </article>
+                {/each}
+              </div>
+            {/if}
+          </details>
+
+          <details class="review-card review-disclosure" open={review.archiveCandidates.length > 0}>
+            <summary>
               <strong>该砍什么 / 该归档什么</strong>
               <small>不删除历史，只改 archived</small>
-            </header>
+            </summary>
 
             {#if review.archiveCandidates.length === 0}
               <p class="task-list__empty">暂时没有明确归档候选。</p>
@@ -715,7 +715,7 @@
                 {/each}
               </div>
             {/if}
-          </section>
+          </details>
         </div>
       {/if}
     </AccordionSection>
