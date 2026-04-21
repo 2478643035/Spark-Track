@@ -777,6 +777,9 @@
         <TaskList
           tasks={actionMode === "life" ? state.lifeTasks : state.goalTasks}
           emptyText={actionMode === "life" ? "还没有日常任务" : "还没有目标提醒"}
+          autoSort={true}
+          showSequence={true}
+          collapsibleText={true}
           on:toggle={(event) => controller.toggleTask(event.detail.task, event.detail.completed)}
         />
 

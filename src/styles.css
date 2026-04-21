@@ -746,6 +746,8 @@ button:disabled {
 }
 
 .task-list__drag,
+.task-list__sequence,
+.task-list__toggle,
 .task-list__delete,
 .capture-item__delete {
   flex: 0 0 auto;
@@ -760,6 +762,19 @@ button:disabled {
 
 .task-list__drag:active {
   cursor: grabbing;
+}
+
+.task-list__sequence {
+  min-width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(80, 57, 33, 0.08);
+  color: var(--nexus-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .task-list__delete,
@@ -793,6 +808,20 @@ button:disabled {
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.4;
+}
+
+.task-list__text--folded {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.task-list__toggle {
+  align-self: flex-start;
+  padding: 6px 8px;
+  color: var(--nexus-accent);
+  font-size: 0.78rem;
 }
 
 .task-list__content small,
