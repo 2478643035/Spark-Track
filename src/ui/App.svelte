@@ -27,8 +27,8 @@
   let selectedGoalIndexPath = "";
   let inboxOpen = true;
   let actionOpen = false;
-  let radarOpen = true;
-  let reviewOpen = true;
+  let radarOpen = false;
+  let reviewOpen = false;
   let goalsOpen = false;
   let expandedGoals = new Set<string>();
   let goalModalOpen = false;

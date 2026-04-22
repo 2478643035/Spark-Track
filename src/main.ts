@@ -268,7 +268,11 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
   }
 
   async reorderTasks(tasks: ManagedTask[]): Promise<void> {
-    await this.runAction(() => this.taskService.reorderTasks(tasks), "Task reorder failed.");
+    await this.runAction(
+      () => this.taskService.reorderTasks(tasks),
+      "Task reorder failed.",
+      () => this.applyReorderedTaskState(tasks)
+    );
   }
 
   async createGoal(name: string): Promise<void> {
@@ -366,10 +370,86 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     }, delay);
   }
 
-  private async runAction(action: () => Promise<unknown>, fallbackMessage: string): Promise<void> {
+  private applyReorderedTaskState(reorderedTasks: ManagedTask[]): void {
+    const [firstTask] = reorderedTasks;
+    if (!firstTask) {
+      return;
+    }
+
+    const sameBlock = reorderedTasks.every(
+      (task) => task.targetPath === firstTask.targetPath && task.blockType === firstTask.blockType
+    );
+    if (!sameBlock) {
+      return;
+    }
+
+    const mergeTaskOrder = (currentTasks: ManagedTask[]): ManagedTask[] => {
+      const currentBlockTasks = currentTasks.filter(
+        (task) => task.targetPath === firstTask.targetPath && task.blockType === firstTask.blockType
+      );
+      if (currentBlockTasks.length === 0) {
+        return currentTasks;
+      }
+
+      const currentById = new Map(currentBlockTasks.map((task) => [task.id, task]));
+      const reorderedTaskIds = new Set(reorderedTasks.map((task) => task.id));
+      const nextBlockTasks = [
+        ...reorderedTasks.map((task) => currentById.get(task.id) ?? task).filter((task) => currentById.has(task.id)),
+        ...currentBlockTasks.filter((task) => !reorderedTaskIds.has(task.id))
+      ];
+
+      let insertedBlock = false;
+      const mergedTasks: ManagedTask[] = [];
+      for (const task of currentTasks) {
+        const isSameBlock = task.targetPath === firstTask.targetPath && task.blockType === firstTask.blockType;
+        if (!isSameBlock) {
+          mergedTasks.push(task);
+        } else if (!insertedBlock) {
+          mergedTasks.push(...nextBlockTasks);
+          insertedBlock = true;
+        }
+      }
+
+      return mergedTasks;
+    };
+
+    if (firstTask.blockType === "life") {
+      this.pushState({
+        lifeTasks: mergeTaskOrder(this.latestState.lifeTasks)
+      });
+      return;
+    }
+
+    const goals = this.latestState.goals.map((goal) =>
+      goal.indexPath === firstTask.targetPath
+        ? {
+            ...goal,
+            goalTasks: mergeTaskOrder(goal.goalTasks)
+          }
+        : goal
+    );
+    const blockers = this.goalService.buildAgedBlockers(goals);
+    const suggestions = this.goalService.buildSuggestions(goals, blockers);
+    const review = this.goalService.buildWeeklyReview(goals, blockers, suggestions);
+
+    this.pushState({
+      goals,
+      goalTasks: goals.filter((goal) => goal.status === "active").flatMap((goal) => goal.goalTasks),
+      blockers,
+      suggestions,
+      review
+    });
+  }
+
+  private async runAction(
+    action: () => Promise<unknown>,
+    fallbackMessage: string,
+    afterRefresh?: () => void
+  ): Promise<void> {
     try {
       await action();
       await this.refreshState();
+      afterRefresh?.();
     } catch (error) {
       console.error(`${PLUGIN_ID}: action failed`, error);
       const message = error instanceof Error ? error.message : fallbackMessage;
