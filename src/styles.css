@@ -775,6 +775,8 @@ button:disabled {
 
 .task-list__row.dragging .task-list__drag {
   cursor: grabbing;
+  background: var(--nexus-accent-soft);
+  color: var(--nexus-accent);
 }
 
 .task-list__sequence {

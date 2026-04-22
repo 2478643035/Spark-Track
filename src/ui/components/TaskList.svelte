@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
   import type { ManagedTask } from "../../types";
 
   export let tasks: ManagedTask[] = [];
@@ -18,9 +18,14 @@
   let dragStartY = 0;
   let dragActive = false;
   let taskListElement: HTMLDivElement | null = null;
+  let touchIdentifier: number | null = null;
+  let touchLongPressTimer: number | null = null;
+  let touchWindowListenersActive = false;
   let expandedTaskIds = new Set<string>();
 
   const POINTER_DRAG_THRESHOLD = 6;
+  const TOUCH_LONG_PRESS_DELAY = 250;
+  const TOUCH_CANCEL_THRESHOLD = 8;
 
   const dispatch = createEventDispatcher<{
     toggle: {
@@ -43,6 +48,9 @@
     dragStartX = 0;
     dragStartY = 0;
     dragActive = false;
+    touchIdentifier = null;
+    clearTouchLongPressTimer();
+    removeTouchWindowListeners();
   }
 
   function moveTask(
@@ -73,6 +81,50 @@
     }
   }
 
+  function clearTouchLongPressTimer() {
+    if (touchLongPressTimer !== null) {
+      window.clearTimeout(touchLongPressTimer);
+      touchLongPressTimer = null;
+    }
+  }
+
+  function findTrackedTouch(touches: TouchList): Touch | null {
+    if (touchIdentifier === null) {
+      return null;
+    }
+
+    for (let index = 0; index < touches.length; index += 1) {
+      const touch = touches.item(index);
+      if (touch?.identifier === touchIdentifier) {
+        return touch;
+      }
+    }
+
+    return null;
+  }
+
+  function addTouchWindowListeners() {
+    if (touchWindowListenersActive) {
+      return;
+    }
+
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", finishTouchDrag);
+    window.addEventListener("touchcancel", cancelTouchDrag);
+    touchWindowListenersActive = true;
+  }
+
+  function removeTouchWindowListeners() {
+    if (!touchWindowListenersActive) {
+      return;
+    }
+
+    window.removeEventListener("touchmove", handleTouchMove);
+    window.removeEventListener("touchend", finishTouchDrag);
+    window.removeEventListener("touchcancel", cancelTouchDrag);
+    touchWindowListenersActive = false;
+  }
+
   function taskRowFromPoint(clientX: number, clientY: number): HTMLElement | null {
     const element = document.elementFromPoint(clientX, clientY);
     const row = element?.closest<HTMLElement>(".task-list__row[data-task-id]") ?? null;
@@ -97,7 +149,7 @@
   }
 
   function handlePointerDown(task: ManagedTask, event: PointerEvent) {
-    if (!reorderable || (event.pointerType === "mouse" && event.button !== 0)) {
+    if (!reorderable || event.pointerType !== "mouse" || event.button !== 0) {
       return;
     }
 
@@ -109,6 +161,85 @@
     dragActive = false;
 
     (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+  }
+
+  function handleTouchStart(task: ManagedTask, event: TouchEvent) {
+    if (!reorderable || event.touches.length !== 1) {
+      return;
+    }
+
+    const touch = event.touches.item(0);
+    if (!touch) {
+      return;
+    }
+
+    clearDragState();
+    draggingTaskId = task.id;
+    touchIdentifier = touch.identifier;
+    dragStartX = touch.clientX;
+    dragStartY = touch.clientY;
+    dragActive = false;
+    addTouchWindowListeners();
+
+    touchLongPressTimer = window.setTimeout(() => {
+      touchLongPressTimer = null;
+      if (draggingTaskId === task.id && touchIdentifier === touch.identifier) {
+        dragActive = true;
+        updateDropTarget(touch.clientX, touch.clientY);
+      }
+    }, TOUCH_LONG_PRESS_DELAY);
+  }
+
+  function handleTouchMove(event: TouchEvent) {
+    const touch = findTrackedTouch(event.touches);
+    if (!touch || !draggingTaskId) {
+      return;
+    }
+
+    const distance = Math.hypot(touch.clientX - dragStartX, touch.clientY - dragStartY);
+    if (!dragActive && distance > TOUCH_CANCEL_THRESHOLD) {
+      clearDragState();
+      return;
+    }
+
+    if (!dragActive) {
+      return;
+    }
+
+    suppressNativeDrag(event);
+    updateDropTarget(touch.clientX, touch.clientY);
+  }
+
+  function finishTouchDrag(event: TouchEvent) {
+    const touch = findTrackedTouch(event.changedTouches);
+    if (!touch) {
+      return;
+    }
+
+    if (dragActive) {
+      suppressNativeDrag(event);
+    }
+
+    if (dragActive && draggingTaskId && dropTargetId && draggingTaskId !== dropTargetId) {
+      dispatch("reorder", {
+        tasks: moveTask(tasks, draggingTaskId, dropTargetId, dropPosition)
+      });
+    }
+
+    clearDragState();
+  }
+
+  function cancelTouchDrag(event: TouchEvent) {
+    const touch = findTrackedTouch(event.changedTouches);
+    if (!touch) {
+      return;
+    }
+
+    if (dragActive) {
+      suppressNativeDrag(event);
+    }
+
+    clearDragState();
   }
 
   function handlePointerMove(event: PointerEvent) {
@@ -209,6 +340,8 @@
   }
 
   $: displayTasks = orderedTasks();
+
+  onDestroy(clearDragState);
 </script>
 
 <svelte:window
@@ -240,6 +373,7 @@
             type="button"
             aria-label="拖动排序"
             on:pointerdown={(event) => handlePointerDown(item.task, event)}
+            on:touchstart={(event) => handleTouchStart(item.task, event)}
             on:dragstart={suppressNativeDrag}
             on:contextmenu={suppressNativeDrag}
           >

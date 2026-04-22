@@ -120,10 +120,10 @@
         </button>
       </div>
 
-      <div class="goal-card__task-creator">
+      <form class="goal-card__task-creator" on:submit|preventDefault={submitTask}>
         <input bind:value={taskText} placeholder="新增目标任务" type="text" />
-        <button type="button" on:click={submitTask}>添加</button>
-      </div>
+        <button type="submit">添加</button>
+      </form>
 
       <TaskList
         tasks={goal.goalTasks}
