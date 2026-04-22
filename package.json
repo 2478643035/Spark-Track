@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build && node scripts/copy-build.mjs",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "package": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.4",

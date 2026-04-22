@@ -1,4 +1,5 @@
 node_modules/
 dist/
+release/
 scripts/git-proxy-*.ps1
 git-proxy-tools.zip
