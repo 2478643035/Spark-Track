@@ -13,7 +13,14 @@
   let draggingTaskId: string | null = null;
   let dropTargetId: string | null = null;
   let dropPosition: "before" | "after" = "after";
+  let dragPointerId: number | null = null;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragActive = false;
+  let taskListElement: HTMLDivElement | null = null;
   let expandedTaskIds = new Set<string>();
+
+  const POINTER_DRAG_THRESHOLD = 6;
 
   const dispatch = createEventDispatcher<{
     toggle: {
@@ -32,6 +39,10 @@
     draggingTaskId = null;
     dropTargetId = null;
     dropPosition = "after";
+    dragPointerId = null;
+    dragStartX = 0;
+    dragStartY = 0;
+    dragActive = false;
   }
 
   function moveTask(
@@ -56,43 +67,86 @@
     return next;
   }
 
-  function handleDragStart(task: ManagedTask, event: DragEvent) {
-    if (!reorderable) {
+  function suppressNativeDrag(event: Event) {
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+  }
+
+  function taskRowFromPoint(clientX: number, clientY: number): HTMLElement | null {
+    const element = document.elementFromPoint(clientX, clientY);
+    const row = element?.closest<HTMLElement>(".task-list__row[data-task-id]") ?? null;
+    return row && taskListElement?.contains(row) ? row : null;
+  }
+
+  function updateDropTarget(clientX: number, clientY: number) {
+    if (!draggingTaskId) {
       return;
     }
 
+    const row = taskRowFromPoint(clientX, clientY);
+    const targetId = row?.dataset.taskId;
+    if (!row || !targetId || targetId === draggingTaskId) {
+      dropTargetId = null;
+      return;
+    }
+
+    const rect = row.getBoundingClientRect();
+    dropTargetId = targetId;
+    dropPosition = clientY < rect.top + rect.height / 2 ? "before" : "after";
+  }
+
+  function handlePointerDown(task: ManagedTask, event: PointerEvent) {
+    if (!reorderable || (event.pointerType === "mouse" && event.button !== 0)) {
+      return;
+    }
+
+    suppressNativeDrag(event);
     draggingTaskId = task.id;
-    event.dataTransfer?.setData("text/plain", task.id);
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = "move";
-    }
+    dragPointerId = event.pointerId;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+    dragActive = false;
+
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
   }
 
-  function handleDragOver(task: ManagedTask, event: DragEvent) {
-    if (!reorderable || !draggingTaskId || draggingTaskId === task.id) {
+  function handlePointerMove(event: PointerEvent) {
+    if (dragPointerId !== event.pointerId || !draggingTaskId) {
       return;
     }
 
-    event.preventDefault();
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    dropTargetId = task.id;
-    dropPosition = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = "move";
-    }
-  }
-
-  function handleDrop(task: ManagedTask, event: DragEvent) {
-    if (!reorderable || !draggingTaskId || draggingTaskId === task.id) {
-      clearDragState();
+    suppressNativeDrag(event);
+    const distance = Math.hypot(event.clientX - dragStartX, event.clientY - dragStartY);
+    if (!dragActive && distance < POINTER_DRAG_THRESHOLD) {
       return;
     }
 
-    event.preventDefault();
-    dispatch("reorder", {
-      tasks: moveTask(tasks, draggingTaskId, task.id, dropPosition)
-    });
+    dragActive = true;
+    updateDropTarget(event.clientX, event.clientY);
+  }
+
+  function finishPointerDrag(event: PointerEvent) {
+    if (dragPointerId !== event.pointerId) {
+      return;
+    }
+
+    suppressNativeDrag(event);
+    if (dragActive && draggingTaskId && dropTargetId && draggingTaskId !== dropTargetId) {
+      dispatch("reorder", {
+        tasks: moveTask(tasks, draggingTaskId, dropTargetId, dropPosition)
+      });
+    }
+
+    clearDragState();
+  }
+
+  function cancelPointerDrag(event: PointerEvent) {
+    if (dragPointerId !== event.pointerId) {
+      return;
+    }
+
+    suppressNativeDrag(event);
     clearDragState();
   }
 
@@ -157,29 +211,37 @@
   $: displayTasks = orderedTasks();
 </script>
 
+<svelte:window
+  on:pointermove={handlePointerMove}
+  on:pointerup={finishPointerDrag}
+  on:pointercancel={cancelPointerDrag}
+/>
+
 {#if tasks.length === 0}
   <p class="task-list__empty">{emptyText}</p>
 {:else}
-  <div class="task-list" role="list">
+  <div bind:this={taskListElement} class:task-list--reorderable={reorderable} class="task-list" role="list">
     {#each displayTasks as item (item.task.id)}
       <div
         class:done={item.task.completed}
-        class:dragging={draggingTaskId === item.task.id}
+        class:dragging={dragActive && draggingTaskId === item.task.id}
         class:drag-over-before={dropTargetId === item.task.id && dropPosition === "before"}
         class:drag-over-after={dropTargetId === item.task.id && dropPosition === "after"}
         class="task-list__row"
+        data-task-id={item.task.id}
         role="listitem"
-        on:dragover={(event) => handleDragOver(item.task, event)}
-        on:drop={(event) => handleDrop(item.task, event)}
+        on:dragstart={suppressNativeDrag}
+        on:drop={suppressNativeDrag}
       >
         {#if reorderable}
           <button
             class="task-list__drag"
-            draggable="true"
+            draggable="false"
             type="button"
             aria-label="拖动排序"
-            on:dragstart={(event) => handleDragStart(item.task, event)}
-            on:dragend={clearDragState}
+            on:pointerdown={(event) => handlePointerDown(item.task, event)}
+            on:dragstart={suppressNativeDrag}
+            on:contextmenu={suppressNativeDrag}
           >
             ⋮⋮
           </button>

@@ -727,6 +727,7 @@ button:disabled {
 
 .task-list__row.dragging {
   opacity: 0.5;
+  box-shadow: 0 8px 20px rgba(35, 35, 31, 0.1);
 }
 
 .task-list__row.drag-over-before {
@@ -757,10 +758,22 @@ button:disabled {
   cursor: grab;
   padding: 8px 10px;
   color: var(--nexus-muted);
+  touch-action: none;
   user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 .task-list__drag:active {
+  cursor: grabbing;
+}
+
+.task-list--reorderable .task-list__row,
+.task-list--reorderable .task-list__content {
+  -webkit-user-drag: none;
+}
+
+.task-list__row.dragging .task-list__drag {
   cursor: grabbing;
 }
 
