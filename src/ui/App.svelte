@@ -191,6 +191,16 @@
     });
   }
 
+  async function addGoalCardTask(goalIndexPath: string, text: string, taskId: string) {
+    await run(async () => {
+      await controller.createGoalTask(goalIndexPath, text, taskId);
+    });
+  }
+
+  function openGoalTaskSort(goalIndexPath: string) {
+    void controller.openGoalTaskSort(goalIndexPath);
+  }
+
   async function submitGoalModal() {
     if (!goalNameText.trim()) {
       return;
@@ -813,10 +823,9 @@
               goal={goal}
               open={expandedGoals.has(goal.indexPath)}
               on:toggle={() => toggleGoal(goal.indexPath)}
-              on:addTask={(event) => controller.createGoalTask(event.detail.goalIndexPath, event.detail.text)}
-              on:toggleTask={(event) => controller.toggleTask(event.detail.task, event.detail.completed)}
-              on:deleteTask={(event) => controller.deleteTask(event.detail.task)}
-              on:reorderTasks={(event) => controller.reorderTasks(event.detail.tasks)}
+              on:addTask={(event) =>
+                addGoalCardTask(event.detail.goalIndexPath, event.detail.text, event.detail.taskId)}
+              on:sortTasks={(event) => openGoalTaskSort(event.detail.goalIndexPath)}
               on:tracker={(event) => openTrackerModal(event.detail.goalIndexPath, event.detail.status)}
               on:resolve={(event) => openResolveModal(event.detail.goalIndexPath, event.detail.blockerId)}
               on:archive={(event) => controller.archiveGoal(event.detail.goalIndexPath)}

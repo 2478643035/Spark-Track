@@ -201,6 +201,15 @@ export class GoalService {
     );
   }
 
+  async readGoalSummaryByPath(goalIndexPath: string): Promise<GoalSummary | null> {
+    const file = this.plugin.app.vault.getAbstractFileByPath(goalIndexPath);
+    if (!(file instanceof TFile)) {
+      return null;
+    }
+
+    return this.readGoalSummary(file);
+  }
+
   buildAgedBlockers(goals: GoalSummary[]): AgedBlocker[] {
     return goals
       .filter((goal) => goal.status === "active")

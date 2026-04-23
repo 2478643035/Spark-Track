@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from "svelte";
+  import { createEventDispatcher, onDestroy, tick } from "svelte";
   import type { ManagedTask } from "../../types";
 
   export let tasks: ManagedTask[] = [];
@@ -9,6 +9,8 @@
   export let autoSort = false;
   export let showSequence = false;
   export let collapsibleText = false;
+  export let scrollToTaskId: string | null = null;
+  export let scrollToTaskNonce = 0;
 
   let draggingTaskId: string | null = null;
   let dropTargetId: string | null = null;
@@ -22,6 +24,8 @@
   let touchLongPressTimer: number | null = null;
   let touchWindowListenersActive = false;
   let expandedTaskIds = new Set<string>();
+  let handledRevealRequest = "";
+  let revealTaskToken = 0;
 
   const POINTER_DRAG_THRESHOLD = 6;
   const TOUCH_LONG_PRESS_DELAY = 250;
@@ -37,6 +41,10 @@
     };
     reorder: {
       tasks: ManagedTask[];
+    };
+    revealHandled: {
+      taskId: string;
+      nonce: number;
     };
   }>();
 
@@ -300,6 +308,52 @@
     expandedTaskIds = next;
   }
 
+  function waitForNextFrame(): Promise<void> {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  }
+
+  function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+  }
+
+  function getScrollContainer(): HTMLElement | null {
+    const candidate = taskListElement?.closest<HTMLElement>(".spark-track-view");
+    if (candidate && candidate.scrollHeight > candidate.clientHeight + 1) {
+      return candidate;
+    }
+
+    if (document.scrollingElement instanceof HTMLElement) {
+      return document.scrollingElement;
+    }
+
+    return document.documentElement instanceof HTMLElement ? document.documentElement : null;
+  }
+
+  function revealTaskRow(targetRow: HTMLElement) {
+    const scrollContainer = getScrollContainer();
+    if (!scrollContainer) {
+      targetRow.scrollIntoView({
+        block: "start",
+        inline: "nearest"
+      });
+      return;
+    }
+
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const rowRect = targetRow.getBoundingClientRect();
+    const targetTop = Math.max(0, scrollContainer.scrollTop + rowRect.top - containerRect.top - 16);
+
+    scrollContainer.scrollTo({ top: targetTop, behavior: "auto" });
+    targetRow.scrollIntoView({
+      block: "start",
+      inline: "nearest"
+    });
+  }
+
   function taskSortKey(task: ManagedTask, fallbackIndex: number): number {
     const token = task.id.match(/^t-([a-z0-9]+)$/i)?.[1];
     if (!token) {
@@ -340,8 +394,50 @@
   }
 
   $: displayTasks = orderedTasks();
+  $: revealRequest = scrollToTaskId ? `${scrollToTaskId}:${scrollToTaskNonce}` : "";
+  $: if (scrollToTaskId && revealRequest !== handledRevealRequest && tasks.some((task) => task.id === scrollToTaskId)) {
+    void revealCreatedTask(scrollToTaskId, scrollToTaskNonce, revealRequest);
+  }
 
   onDestroy(clearDragState);
+
+  async function revealCreatedTask(taskId: string, nonce: number, revealRequest: string) {
+    const currentToken = ++revealTaskToken;
+
+    await tick();
+    await waitForNextFrame();
+    if (currentToken !== revealTaskToken) {
+      return;
+    }
+
+    let targetRow = Array.from(taskListElement?.querySelectorAll<HTMLElement>(".task-list__row[data-task-id]") ?? []).find(
+      (row) => row.dataset.taskId === taskId
+    );
+    if (!targetRow) {
+      return;
+    }
+
+    revealTaskRow(targetRow);
+    await delay(220);
+    await waitForNextFrame();
+    if (currentToken !== revealTaskToken) {
+      return;
+    }
+
+    targetRow = Array.from(taskListElement?.querySelectorAll<HTMLElement>(".task-list__row[data-task-id]") ?? []).find(
+      (row) => row.dataset.taskId === taskId
+    );
+    if (!targetRow) {
+      return;
+    }
+
+    revealTaskRow(targetRow);
+    handledRevealRequest = revealRequest;
+    dispatch("revealHandled", {
+      taskId,
+      nonce
+    });
+  }
 </script>
 
 <svelte:window

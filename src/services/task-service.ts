@@ -63,10 +63,10 @@ export class TaskService {
     });
   }
 
-  async createGoalTask(goalIndexPath: string, text: string): Promise<void> {
+  async createGoalTask(goalIndexPath: string, text: string, taskId = createTaskId()): Promise<ManagedTask | null> {
     const normalizedText = text.trim();
     if (!normalizedText) {
-      return;
+      return null;
     }
 
     const file = this.plugin.app.vault.getAbstractFileByPath(goalIndexPath);
@@ -76,7 +76,7 @@ export class TaskService {
 
     const line = renderTaskLine({
       text: normalizedText,
-      taskId: createTaskId()
+      taskId
     });
 
     await this.plugin.app.vault.process(file, (content) => {
@@ -86,18 +86,26 @@ export class TaskService {
         blockType: "goal"
       });
       const nextBody = [
+        line,
         ...existingTasks.map((task) =>
           renderTaskLine({
             completed: task.completed,
             text: task.text,
             taskId: task.id
           })
-        ),
-        line
+        )
       ].join("\n");
 
       return replaceBlock(content, CONTROLLED_BLOCKS.goalTasks, nextBody);
     });
+
+    return {
+      id: taskId,
+      text: normalizedText,
+      completed: false,
+      targetPath: file.path,
+      blockType: "goal"
+    };
   }
 
   async toggleTask(task: ManagedTask, completed: boolean): Promise<void> {

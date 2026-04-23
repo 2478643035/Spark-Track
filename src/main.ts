@@ -17,9 +17,11 @@ import type {
   NexusState,
   NexusViewController
 } from "./types";
+import { createTaskId } from "./utils/date";
 import { basenameWithoutExtension } from "./utils/paths";
 import { ensurePluginNoMediaShield } from "./utils/no-media";
 import { assertSafeFolderPath, assertSafeMarkdownPath, normalizeSettingsWritePaths } from "./utils/safe-write-paths";
+import { GoalTaskSortModal } from "./ui/modals/goal-task-sort-modal";
 import { NexusCommandView } from "./view/nexus-view";
 
 type ParsedCaptureCommand =
@@ -62,6 +64,10 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
   private refreshTimer: number | null = null;
   private settingsCorrections: string[] = [];
   private activeMarkdownFile: TFile | null = null;
+  private goalTaskMutationQueues = new Map<string, Promise<void>>();
+  private goalTaskMutationVersions = new Map<string, number>();
+  private suppressedGoalRefreshPaths = new Map<string, number>();
+  private readonly goalTaskRefreshSuppressWindowMs = 2000;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -106,11 +112,16 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
         this.scheduleRefresh(80);
       })
     );
-    this.registerEvent(this.app.vault.on("create", () => this.scheduleRefresh()));
-    this.registerEvent(this.app.vault.on("modify", () => this.scheduleRefresh()));
-    this.registerEvent(this.app.vault.on("delete", () => this.scheduleRefresh()));
-    this.registerEvent(this.app.vault.on("rename", () => this.scheduleRefresh()));
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.scheduleRefresh()));
+    this.registerEvent(this.app.vault.on("create", (file) => this.scheduleRefreshForPath(file?.path ?? null)));
+    this.registerEvent(this.app.vault.on("modify", (file) => this.scheduleRefreshForPath(file?.path ?? null)));
+    this.registerEvent(this.app.vault.on("delete", (file) => this.scheduleRefreshForPath(file?.path ?? null)));
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        this.clearSuppressedGoalRefreshPath(oldPath);
+        this.scheduleRefreshForPath(file?.path ?? null);
+      })
+    );
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.scheduleRefreshForPath(file?.path ?? null)));
 
     if (this.settingsCorrections.length > 0) {
       new Notice("Unsafe write paths were reset to safe defaults.");
@@ -148,11 +159,12 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     });
 
     try {
-      const [lifeTasks, goals, captures] = await Promise.all([
+      const [lifeTasks, parsedGoals, captures] = await Promise.all([
         this.taskService.listLifeTasks(),
         this.goalService.listGoals(),
         this.dailyNoteService.listRecentCaptures()
       ]);
+      const goals = parsedGoals;
       const blockers = this.goalService.buildAgedBlockers(goals);
       const suggestions = this.goalService.buildSuggestions(goals, blockers);
       const review = this.goalService.buildWeeklyReview(goals, blockers, suggestions);
@@ -230,10 +242,17 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
   }
 
   async convertCaptureToGoalTask(capture: CaptureEntry, goalIndexPath: string): Promise<void> {
-    await this.runAction(async () => {
-      await this.taskService.createGoalTask(goalIndexPath, capture.text);
+    try {
+      const createdTask = await this.createGoalTask(goalIndexPath, capture.text);
+      if (!createdTask) {
+        return;
+      }
+
       await this.dailyNoteService.updateCaptureStatus(capture, "goal-task");
-    }, "Converting capture to goal task failed.");
+      await this.refreshState();
+    } catch (error) {
+      this.handleActionError(error, "Converting capture to goal task failed.");
+    }
   }
 
   async convertCaptureToGoalTracker(input: {
@@ -255,24 +274,76 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     await this.runAction(() => this.taskService.createLifeTask(text, this.getActiveNoteName()), "Life task creation failed.");
   }
 
-  async createGoalTask(goalIndexPath: string, text: string): Promise<void> {
-    await this.runAction(() => this.taskService.createGoalTask(goalIndexPath, text), "Goal task creation failed.");
+  async createGoalTask(goalIndexPath: string, text: string, taskId?: string): Promise<ManagedTask | null> {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return null;
+    }
+
+    const localTask: ManagedTask = {
+      id: taskId ?? createTaskId(),
+      text: normalizedText,
+      completed: false,
+      targetPath: goalIndexPath,
+      blockType: "goal"
+    };
+
+    return this.runGoalTaskMutation(
+      goalIndexPath,
+      () => this.applyGoalTaskCreated(localTask),
+      async () => (await this.taskService.createGoalTask(goalIndexPath, normalizedText, localTask.id)) ?? localTask,
+      "Goal task creation failed."
+    );
+  }
+
+  async openGoalTaskSort(goalIndexPath: string): Promise<void> {
+    const goal = this.latestState.goals.find((entry) => entry.indexPath === goalIndexPath);
+    if (!goal) {
+      return;
+    }
+
+    new GoalTaskSortModal(this.app, {
+      controller: this,
+      goalIndexPath,
+      goalName: goal.name,
+      goalTasks: goal.goalTasks
+    }).open();
   }
 
   async toggleTask(task: ManagedTask, completed: boolean): Promise<void> {
+    if (task.blockType === "goal") {
+      await this.runGoalTaskMutation(
+        task.targetPath,
+        () => this.applyGoalTaskToggled(task, completed),
+        () => this.taskService.toggleTask(task, completed),
+        "Task update failed."
+      );
+      return;
+    }
+
     await this.runAction(() => this.taskService.toggleTask(task, completed), "Task update failed.");
   }
 
   async deleteTask(task: ManagedTask): Promise<void> {
+    if (task.blockType === "goal") {
+      await this.runGoalTaskMutation(
+        task.targetPath,
+        () => this.applyGoalTaskDeleted(task),
+        () => this.taskService.deleteTask(task),
+        "Task deletion failed."
+      );
+      return;
+    }
+
     await this.runAction(() => this.taskService.deleteTask(task), "Task deletion failed.");
   }
 
   async reorderTasks(tasks: ManagedTask[]): Promise<void> {
-    await this.runAction(
-      () => this.taskService.reorderTasks(tasks),
-      "Task reorder failed.",
-      () => this.applyReorderedTaskState(tasks)
-    );
+    if (tasks.length === 0) {
+      return;
+    }
+
+    await this.runAction(() => this.taskService.reorderTasks(tasks), "Task reorder failed.");
   }
 
   async createGoal(name: string): Promise<void> {
@@ -370,64 +441,60 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     }, delay);
   }
 
-  private applyReorderedTaskState(reorderedTasks: ManagedTask[]): void {
-    const [firstTask] = reorderedTasks;
-    if (!firstTask) {
+  private scheduleRefreshForPath(path: string | null, delay = 140): void {
+    if (path && this.isSuppressedGoalRefreshPath(path)) {
       return;
     }
 
-    const sameBlock = reorderedTasks.every(
-      (task) => task.targetPath === firstTask.targetPath && task.blockType === firstTask.blockType
-    );
-    if (!sameBlock) {
+    this.scheduleRefresh(delay);
+  }
+
+  private applyGoalTaskToggled(task: ManagedTask, completed: boolean): void {
+    if (task.blockType !== "goal") {
       return;
     }
 
-    const mergeTaskOrder = (currentTasks: ManagedTask[]): ManagedTask[] => {
-      const currentBlockTasks = currentTasks.filter(
-        (task) => task.targetPath === firstTask.targetPath && task.blockType === firstTask.blockType
-      );
-      if (currentBlockTasks.length === 0) {
-        return currentTasks;
+    this.updateGoalState(task.targetPath, (goal) => ({
+      ...goal,
+      goalTasks: goal.goalTasks.map((entry) => (entry.id === task.id ? { ...entry, completed } : entry))
+    }));
+  }
+
+  private applyGoalTaskDeleted(task: ManagedTask): void {
+    if (task.blockType !== "goal") {
+      return;
+    }
+
+    this.updateGoalState(task.targetPath, (goal) => ({
+      ...goal,
+      goalTasks: goal.goalTasks.filter((entry) => entry.id !== task.id)
+    }));
+  }
+
+  private applyGoalTaskCreated(createdTask: ManagedTask): void {
+    if (createdTask.blockType !== "goal") {
+      return;
+    }
+
+    this.updateGoalState(createdTask.targetPath, (goal) => {
+      if (goal.goalTasks.some((task) => task.id === createdTask.id)) {
+        return goal;
       }
 
-      const currentById = new Map(currentBlockTasks.map((task) => [task.id, task]));
-      const reorderedTaskIds = new Set(reorderedTasks.map((task) => task.id));
-      const nextBlockTasks = [
-        ...reorderedTasks.map((task) => currentById.get(task.id) ?? task).filter((task) => currentById.has(task.id)),
-        ...currentBlockTasks.filter((task) => !reorderedTaskIds.has(task.id))
-      ];
+      return {
+        ...goal,
+        goalTasks: [
+          {
+            ...createdTask,
+            goalName: goal.name
+          },
+          ...goal.goalTasks
+        ]
+      };
+    });
+  }
 
-      let insertedBlock = false;
-      const mergedTasks: ManagedTask[] = [];
-      for (const task of currentTasks) {
-        const isSameBlock = task.targetPath === firstTask.targetPath && task.blockType === firstTask.blockType;
-        if (!isSameBlock) {
-          mergedTasks.push(task);
-        } else if (!insertedBlock) {
-          mergedTasks.push(...nextBlockTasks);
-          insertedBlock = true;
-        }
-      }
-
-      return mergedTasks;
-    };
-
-    if (firstTask.blockType === "life") {
-      this.pushState({
-        lifeTasks: mergeTaskOrder(this.latestState.lifeTasks)
-      });
-      return;
-    }
-
-    const goals = this.latestState.goals.map((goal) =>
-      goal.indexPath === firstTask.targetPath
-        ? {
-            ...goal,
-            goalTasks: mergeTaskOrder(goal.goalTasks)
-          }
-        : goal
-    );
+  private pushGoalState(goals: GoalSummary[]): void {
     const blockers = this.goalService.buildAgedBlockers(goals);
     const suggestions = this.goalService.buildSuggestions(goals, blockers);
     const review = this.goalService.buildWeeklyReview(goals, blockers, suggestions);
@@ -441,6 +508,31 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     });
   }
 
+  private async runGoalTaskMutation<T>(
+    goalIndexPath: string,
+    applyLocalState: () => void,
+    action: () => Promise<T>,
+    fallbackMessage: string
+  ): Promise<T | null> {
+    const mutationVersion = this.bumpGoalTaskMutationVersion(goalIndexPath);
+    applyLocalState();
+
+    try {
+      this.suppressGoalRefreshPath(goalIndexPath);
+      return await this.enqueueGoalTaskMutation(goalIndexPath, async () => {
+        this.suppressGoalRefreshPath(goalIndexPath);
+        const result = await action();
+        if (this.isLatestGoalTaskMutation(goalIndexPath, mutationVersion)) {
+          await this.reconcileGoalState(goalIndexPath);
+        }
+        return result;
+      });
+    } catch (error) {
+      await this.handleGoalTaskMutationError(goalIndexPath, mutationVersion, error, fallbackMessage);
+      return null;
+    }
+  }
+
   private async runAction(
     action: () => Promise<unknown>,
     fallbackMessage: string,
@@ -451,13 +543,136 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
       await this.refreshState();
       afterRefresh?.();
     } catch (error) {
-      console.error(`${PLUGIN_ID}: action failed`, error);
-      const message = error instanceof Error ? error.message : fallbackMessage;
-      new Notice(message);
-      this.pushState({
-        error: message
-      });
+      this.handleActionError(error, fallbackMessage);
     }
+  }
+
+  private handleActionError(error: unknown, fallbackMessage: string): void {
+    console.error(`${PLUGIN_ID}: action failed`, error);
+    const message = error instanceof Error ? error.message : fallbackMessage;
+    new Notice(message);
+    this.pushState({
+      error: message
+    });
+  }
+
+  private updateGoalState(goalIndexPath: string, update: (goal: GoalSummary) => GoalSummary): void {
+    let changed = false;
+    const goals = this.latestState.goals.map((goal) => {
+      if (goal.indexPath !== goalIndexPath) {
+        return goal;
+      }
+
+      const nextGoal = update(goal);
+      changed = changed || nextGoal !== goal;
+      return nextGoal;
+    });
+
+    if (changed) {
+      this.pushGoalState(goals);
+    }
+  }
+
+  private async enqueueGoalTaskMutation<T>(goalIndexPath: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.goalTaskMutationQueues.get(goalIndexPath) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => action());
+    const cleanup = run.then(() => undefined, () => undefined);
+
+    this.goalTaskMutationQueues.set(goalIndexPath, cleanup);
+
+    try {
+      return await run;
+    } finally {
+      if (this.goalTaskMutationQueues.get(goalIndexPath) === cleanup) {
+        this.goalTaskMutationQueues.delete(goalIndexPath);
+      }
+    }
+  }
+
+  private async reconcileGoalState(goalIndexPath: string): Promise<void> {
+    const reconciledGoal = await this.goalService.readGoalSummaryByPath(goalIndexPath);
+    if (!reconciledGoal) {
+      await this.refreshState();
+      return;
+    }
+
+    const existingIndex = this.latestState.goals.findIndex((goal) => goal.indexPath === goalIndexPath);
+    const nextGoals =
+      existingIndex === -1
+        ? [...this.latestState.goals, reconciledGoal]
+        : this.latestState.goals.map((goal) => (goal.indexPath === goalIndexPath ? reconciledGoal : goal));
+
+    nextGoals.sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+    this.pushGoalState(nextGoals);
+  }
+
+  private suppressGoalRefreshPath(goalIndexPath: string): void {
+    this.clearExpiredSuppressedGoalRefreshPaths();
+    this.suppressedGoalRefreshPaths.set(goalIndexPath, Date.now() + this.goalTaskRefreshSuppressWindowMs);
+  }
+
+  private bumpGoalTaskMutationVersion(goalIndexPath: string): number {
+    const nextVersion = (this.goalTaskMutationVersions.get(goalIndexPath) ?? 0) + 1;
+    this.goalTaskMutationVersions.set(goalIndexPath, nextVersion);
+    return nextVersion;
+  }
+
+  private isLatestGoalTaskMutation(goalIndexPath: string, mutationVersion: number): boolean {
+    return (this.goalTaskMutationVersions.get(goalIndexPath) ?? 0) === mutationVersion;
+  }
+
+  private clearSuppressedGoalRefreshPath(goalIndexPath: string): void {
+    if (goalIndexPath) {
+      this.suppressedGoalRefreshPaths.delete(goalIndexPath);
+    }
+  }
+
+  private clearExpiredSuppressedGoalRefreshPaths(): void {
+    const now = Date.now();
+    for (const [path, expiresAt] of this.suppressedGoalRefreshPaths.entries()) {
+      if (expiresAt <= now) {
+        this.suppressedGoalRefreshPaths.delete(path);
+      }
+    }
+  }
+
+  private isSuppressedGoalRefreshPath(goalIndexPath: string): boolean {
+    this.clearExpiredSuppressedGoalRefreshPaths();
+    const expiresAt = this.suppressedGoalRefreshPaths.get(goalIndexPath);
+    if (!expiresAt) {
+      return false;
+    }
+
+    if (expiresAt <= Date.now()) {
+      this.suppressedGoalRefreshPaths.delete(goalIndexPath);
+      return false;
+    }
+
+    return true;
+  }
+
+  private async handleGoalTaskMutationError(
+    goalIndexPath: string,
+    mutationVersion: number,
+    error: unknown,
+    fallbackMessage: string
+  ): Promise<void> {
+    console.error(`${PLUGIN_ID}: goal task mutation failed`, error);
+
+    if (this.isLatestGoalTaskMutation(goalIndexPath, mutationVersion)) {
+      try {
+        await this.reconcileGoalState(goalIndexPath);
+      } catch (reconcileError) {
+        console.error(`${PLUGIN_ID}: goal task reconcile failed`, reconcileError);
+        await this.refreshState();
+      }
+    }
+
+    const message = error instanceof Error ? error.message : fallbackMessage;
+    new Notice(message);
+    this.pushState({
+      error: message
+    });
   }
 
   private async savePluginData(): Promise<void> {

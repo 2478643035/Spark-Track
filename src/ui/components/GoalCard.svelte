@@ -1,29 +1,24 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { TRACKER_STATUS_META } from "../../constants";
-  import type { GoalSummary, HeatmapCell, ManagedTask } from "../../types";
-  import TaskList from "./TaskList.svelte";
+  import { createTaskId } from "../../utils/date";
+  import type { GoalSummary, HeatmapCell } from "../../types";
 
   export let goal: GoalSummary;
   export let open = false;
 
   let taskText = "";
+  let taskInputElement: HTMLInputElement | null = null;
 
   const dispatch = createEventDispatcher<{
     toggle: void;
     addTask: {
       goalIndexPath: string;
       text: string;
+      taskId: string;
     };
-    toggleTask: {
-      task: ManagedTask;
-      completed: boolean;
-    };
-    deleteTask: {
-      task: ManagedTask;
-    };
-    reorderTasks: {
-      tasks: ManagedTask[];
+    sortTasks: {
+      goalIndexPath: string;
     };
     tracker: {
       goalIndexPath: string;
@@ -39,13 +34,17 @@
   }>();
 
   function submitTask() {
-    if (!taskText.trim()) {
+    const normalizedText = taskText.trim();
+    if (!normalizedText) {
       return;
     }
 
+    taskInputElement?.blur();
+
     dispatch("addTask", {
       goalIndexPath: goal.indexPath,
-      text: taskText
+      text: normalizedText,
+      taskId: createTaskId()
     });
     taskText = "";
   }
@@ -62,7 +61,7 @@
   }
 
   $: folderName = goal.folderPath.split("/").pop() ?? goal.folderPath;
-  $: folderSummary = folderName === goal.name ? goal.folderPath : `${folderName} · ${goal.folderPath}`;
+  $: folderSummary = folderName === goal.name ? goal.folderPath : `${folderName} 路 ${goal.folderPath}`;
 </script>
 
 <article class:archived={goal.status === "archived"} class:open={open} class="goal-card">
@@ -95,7 +94,7 @@
               class:resolved={cell.resolved}
               class="goal-card__cell"
               data-status={cell.status}
-              title={`${cell.date} · ${TRACKER_STATUS_META[cell.status].label}`}
+              title={`${cell.date} 路 ${TRACKER_STATUS_META[cell.status].label}`}
               type="button"
               on:click={() => handleCellClick(cell)}
             >
@@ -121,19 +120,23 @@
       </div>
 
       <form class="goal-card__task-creator" on:submit|preventDefault={submitTask}>
-        <input bind:value={taskText} placeholder="新增目标任务" type="text" />
+        <input bind:this={taskInputElement} bind:value={taskText} placeholder="新增目标任务" type="text" />
         <button type="submit">添加</button>
       </form>
 
-      <TaskList
-        tasks={goal.goalTasks}
-        reorderable={true}
-        deletable={true}
-        emptyText="这个目标还没有待办"
-        on:toggle={(event) => dispatch("toggleTask", event.detail)}
-        on:delete={(event) => dispatch("deleteTask", event.detail)}
-        on:reorder={(event) => dispatch("reorderTasks", event.detail)}
-      />
+      <div class="goal-card__task-header">
+        <div class="goal-card__task-heading">
+          <strong>任务</strong>
+          <small>{goal.goalTasks.length === 0 ? "还没有任务" : `共 ${goal.goalTasks.length} 项`}</small>
+        </div>
+        <button
+          class="goal-card__list-button"
+          type="button"
+          on:click={() => dispatch("sortTasks", { goalIndexPath: goal.indexPath })}
+        >
+          任务列表
+        </button>
+      </div>
 
       <button
         class="goal-card__archive"

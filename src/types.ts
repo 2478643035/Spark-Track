@@ -215,7 +215,8 @@ export interface NexusViewController {
     status: GoalTrackerStatus;
   }): Promise<void>;
   createLifeTask(text: string): Promise<void>;
-  createGoalTask(goalIndexPath: string, text: string): Promise<void>;
+  createGoalTask(goalIndexPath: string, text: string, taskId?: string): Promise<ManagedTask | null>;
+  openGoalTaskSort(goalIndexPath: string): Promise<void>;
   toggleTask(task: ManagedTask, completed: boolean): Promise<void>;
   deleteTask(task: ManagedTask): Promise<void>;
   reorderTasks(tasks: ManagedTask[]): Promise<void>;
