@@ -25,10 +25,14 @@ export class TaskService {
     return this.readTasksFromFile(file, "life");
   }
 
-  async createLifeTask(text: string, sourceNoteName: string | null): Promise<void> {
+  async createLifeTask(
+    text: string,
+    sourceNoteName: string | null,
+    taskId = createTaskId()
+  ): Promise<ManagedTask | null> {
     const normalizedText = text.trim();
     if (!normalizedText) {
-      return;
+      return null;
     }
 
     const file = await this.resolveLifeTaskFile(true, { preferActiveNote: true });
@@ -37,9 +41,10 @@ export class TaskService {
     }
 
     const suffix = sourceNoteName ? ` [来源：[[${sourceNoteName}]]]` : "";
+    const taskText = `${normalizedText}${suffix}`;
     const line = renderTaskLine({
-      text: `${normalizedText}${suffix}`,
-      taskId: createTaskId()
+      text: taskText,
+      taskId
     });
 
     await this.plugin.app.vault.process(file, (content) => {
@@ -61,6 +66,14 @@ export class TaskService {
 
       return replaceBlock(content, CONTROLLED_BLOCKS.lifeTasks, nextBody);
     });
+
+    return {
+      id: taskId,
+      text: taskText,
+      completed: false,
+      targetPath: file.path,
+      blockType: "life"
+    };
   }
 
   async createGoalTask(goalIndexPath: string, text: string, taskId = createTaskId()): Promise<ManagedTask | null> {

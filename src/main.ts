@@ -270,8 +270,15 @@ export default class NexusCommandPlugin extends Plugin implements NexusViewContr
     }, "Converting capture to tracker update failed.");
   }
 
-  async createLifeTask(text: string): Promise<void> {
-    await this.runAction(() => this.taskService.createLifeTask(text, this.getActiveNoteName()), "Life task creation failed.");
+  async createLifeTask(text: string, taskId?: string): Promise<ManagedTask | null> {
+    try {
+      const createdTask = await this.taskService.createLifeTask(text, this.getActiveNoteName(), taskId);
+      await this.refreshState();
+      return createdTask;
+    } catch (error) {
+      this.handleActionError(error, "Life task creation failed.");
+      return null;
+    }
   }
 
   async createGoalTask(goalIndexPath: string, text: string, taskId?: string): Promise<ManagedTask | null> {

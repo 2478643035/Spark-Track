@@ -745,6 +745,10 @@ button:disabled {
   opacity: 0.72;
 }
 
+.task-list__row.pending {
+  opacity: 0.62;
+}
+
 .task-list__row.dragging {
   opacity: 0.5;
   box-shadow: 0 8px 20px rgba(35, 35, 31, 0.1);

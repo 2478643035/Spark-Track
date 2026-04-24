@@ -11,6 +11,7 @@
   export let collapsibleText = false;
   export let scrollToTaskId: string | null = null;
   export let scrollToTaskNonce = 0;
+  export let disabledTaskIds: Iterable<string> = [];
 
   let draggingTaskId: string | null = null;
   let dropTargetId: string | null = null;
@@ -26,6 +27,7 @@
   let expandedTaskIds = new Set<string>();
   let handledRevealRequest = "";
   let revealTaskToken = 0;
+  let disabledTaskIdSet = new Set<string>();
 
   const POINTER_DRAG_THRESHOLD = 6;
   const TOUCH_LONG_PRESS_DELAY = 250;
@@ -290,7 +292,15 @@
   }
 
   function handleDelete(task: ManagedTask) {
+    if (isTaskDisabled(task)) {
+      return;
+    }
+
     dispatch("delete", { task });
+  }
+
+  function isTaskDisabled(task: ManagedTask): boolean {
+    return disabledTaskIdSet.has(task.id);
   }
 
   function isLongTask(task: ManagedTask): boolean {
@@ -394,6 +404,7 @@
   }
 
   $: displayTasks = orderedTasks();
+  $: disabledTaskIdSet = new Set(disabledTaskIds);
   $: revealRequest = scrollToTaskId ? `${scrollToTaskId}:${scrollToTaskNonce}` : "";
   $: if (scrollToTaskId && revealRequest !== handledRevealRequest && tasks.some((task) => task.id === scrollToTaskId)) {
     void revealCreatedTask(scrollToTaskId, scrollToTaskNonce, revealRequest);
@@ -453,6 +464,7 @@
     {#each displayTasks as item (item.task.id)}
       <div
         class:done={item.task.completed}
+        class:pending={isTaskDisabled(item.task)}
         class:dragging={dragActive && draggingTaskId === item.task.id}
         class:drag-over-before={dropTargetId === item.task.id && dropPosition === "before"}
         class:drag-over-after={dropTargetId === item.task.id && dropPosition === "after"}
@@ -487,7 +499,9 @@
           <input
             type="checkbox"
             checked={item.task.completed}
+            disabled={isTaskDisabled(item.task)}
             on:change={(event) =>
+              !isTaskDisabled(item.task) &&
               dispatch("toggle", {
                 task: item.task,
                 completed: (event.currentTarget as HTMLInputElement).checked
@@ -513,7 +527,13 @@
         {/if}
 
         {#if deletable}
-          <button class="task-list__delete" type="button" aria-label="删除任务" on:click={() => handleDelete(item.task)}>
+          <button
+            class="task-list__delete"
+            type="button"
+            aria-label="删除任务"
+            disabled={isTaskDisabled(item.task)}
+            on:click={() => handleDelete(item.task)}
+          >
             删除
           </button>
         {/if}

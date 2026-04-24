@@ -35,9 +35,15 @@
     return source.map((task) => ({ ...task }));
   }
 
+  function taskSignature(source: ManagedTask[]): string {
+    return source
+      .map((task) => `${task.id}:${task.completed ? "1" : "0"}:${task.targetPath}:${task.text}`)
+      .join("|");
+  }
+
   function syncLocalTasks(source: ManagedTask[]) {
     localTasks = cloneTasks(source);
-    lastIncomingSignature = source.map((task) => task.id).join("|");
+    lastIncomingSignature = taskSignature(source);
     didInitialize = true;
     hasUnsavedOrder = false;
     clearDragState();
@@ -371,7 +377,7 @@
     onCancel();
   }
 
-  $: incomingSignature = tasks.map((task) => `${task.id}:${task.completed ? "1" : "0"}`).join("|");
+  $: incomingSignature = taskSignature(tasks);
   $: if (!didInitialize || (!dragActive && !hasUnsavedOrder && incomingSignature !== lastIncomingSignature)) {
     syncLocalTasks(tasks);
   }

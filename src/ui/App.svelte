@@ -8,10 +8,12 @@
     GoalReviewMetric,
     GoalSummary,
     GoalTrackerStatus,
+    ManagedTask,
     NexusState,
     NexusViewController,
     ReviewAction
   } from "../types";
+  import { createTaskId } from "../utils/date";
   import AccordionSection from "./components/AccordionSection.svelte";
   import GoalCard from "./components/GoalCard.svelte";
   import TaskList from "./components/TaskList.svelte";
@@ -23,6 +25,12 @@
   let selectedChipIds = new Set<string>();
   let actionMode: ActionPanelMode = "life";
   let actionTaskText = "";
+  let pendingActionTasks: ManagedTask[] = [];
+  let pendingActionTaskIds = new Set<string>();
+  let actionTaskRevealId: string | null = null;
+  let actionTaskRevealNonce = 0;
+  let actionListRevision = 0;
+  let lastActionTasksSignature = "";
   let reviewNoteText = "";
   let selectedGoalIndexPath = "";
   let inboxOpen = true;
@@ -44,6 +52,11 @@
 
   const unsubscribe = controller.state.subscribe((value) => {
     state = value;
+    const settledTaskIds = new Set([
+      ...(value.lifeTasks ?? []).map((task) => task.id),
+      ...(value.goalTasks ?? []).map((task) => task.id)
+    ]);
+    pendingActionTasks = pendingActionTasks.filter((task) => !settledTaskIds.has(task.id));
 
     const activeGoals = (value.goals ?? []).filter((goal) => goal.status === "active");
     if (!selectedGoalIndexPath && activeGoals.length > 0) {
@@ -72,6 +85,22 @@
   $: selectedGoal = activeGoals.find((goal) => goal.indexPath === selectedGoalIndexPath) ?? null;
   $: modalSelectedGoal = activeGoals.find((goal) => goal.indexPath === modalGoalIndexPath) ?? null;
   $: commandSummary = summarizeCommand(captureText);
+  $: actionSourceTasks = actionMode === "life" ? state?.lifeTasks ?? [] : state?.goalTasks ?? [];
+  $: actionSourceTaskIds = new Set(actionSourceTasks.map((task) => task.id));
+  $: actionTasks = [
+    ...pendingActionTasks.filter((task) => task.blockType === actionMode && !actionSourceTaskIds.has(task.id)),
+    ...actionSourceTasks
+  ];
+  $: pendingActionTaskIds = new Set(pendingActionTasks.map((task) => task.id));
+  $: {
+    const nextActionTasksSignature = actionTasks
+      .map((task) => `${task.id}:${task.completed ? "1" : "0"}:${task.targetPath}:${task.text}`)
+      .join("|");
+    if (nextActionTasksSignature !== lastActionTasksSignature) {
+      lastActionTasksSignature = nextActionTasksSignature;
+      actionListRevision += 1;
+    }
+  }
 
   function goalFolderName(goal: GoalSummary): string {
     return goal.folderPath.split("/").pop() ?? goal.folderPath;
@@ -158,6 +187,25 @@
     }
   }
 
+  function removePendingActionTask(taskId: string) {
+    pendingActionTasks = pendingActionTasks.filter((task) => task.id !== taskId);
+  }
+
+  function handleActionTaskToggle(event: CustomEvent<{ task: ManagedTask; completed: boolean }>) {
+    const { task, completed } = event.detail;
+    if (pendingActionTaskIds.has(task.id)) {
+      return;
+    }
+
+    void controller.toggleTask(task, completed);
+  }
+
+  function handleActionTaskRevealHandled(event: CustomEvent<{ taskId: string; nonce: number }>) {
+    if (event.detail.taskId === actionTaskRevealId && event.detail.nonce === actionTaskRevealNonce) {
+      actionTaskRevealId = null;
+    }
+  }
+
   async function submitCapture() {
     if (!captureText.trim()) {
       return;
@@ -174,20 +222,37 @@
   }
 
   async function submitActionTask() {
-    if (!actionTaskText.trim()) {
+    const text = actionTaskText.trim();
+    if (!text || (actionMode === "goal" && !selectedGoalIndexPath)) {
       return;
     }
 
-    const text = actionTaskText;
+    const taskId = createTaskId();
+    const pendingTask: ManagedTask = {
+      id: taskId,
+      text,
+      completed: false,
+      targetPath: actionMode === "goal" ? selectedGoalIndexPath : "__pending_life_task__",
+      blockType: actionMode === "life" ? "life" : "goal",
+      goalName: actionMode === "goal" ? selectedGoal?.name : undefined
+    };
+
+    pendingActionTasks = [pendingTask, ...pendingActionTasks];
+    actionTaskRevealId = taskId;
+    actionTaskRevealNonce += 1;
+    actionTaskText = "";
 
     await run(async () => {
+      let createdTask: ManagedTask | null = null;
       if (actionMode === "life") {
-        await controller.createLifeTask(text);
+        createdTask = await controller.createLifeTask(text, taskId);
       } else if (selectedGoalIndexPath) {
-        await controller.createGoalTask(selectedGoalIndexPath, text);
+        createdTask = await controller.createGoalTask(selectedGoalIndexPath, text, taskId);
       }
 
-      actionTaskText = "";
+      if (!createdTask) {
+        removePendingActionTask(taskId);
+      }
     });
   }
 
@@ -753,7 +818,7 @@
     <AccordionSection
       title="行动"
       subtitle="日常与目标任务"
-      count={actionMode === "life" ? state.lifeTasks.length : state.goalTasks.length}
+      count={actionTasks.length}
       open={actionOpen}
       on:toggle={() => (actionOpen = !actionOpen)}
     >
@@ -784,14 +849,20 @@
           </div>
         {/if}
 
-        <TaskList
-          tasks={actionMode === "life" ? state.lifeTasks : state.goalTasks}
-          emptyText={actionMode === "life" ? "还没有日常任务" : "还没有目标提醒"}
-          autoSort={true}
-          showSequence={true}
-          collapsibleText={true}
-          on:toggle={(event) => controller.toggleTask(event.detail.task, event.detail.completed)}
-        />
+        {#key `${actionMode}:${actionListRevision}`}
+          <TaskList
+            tasks={actionTasks}
+            emptyText={actionMode === "life" ? "还没有日常任务" : "还没有目标提醒"}
+            autoSort={true}
+            showSequence={true}
+            collapsibleText={true}
+            disabledTaskIds={pendingActionTaskIds}
+            scrollToTaskId={actionTaskRevealId}
+            scrollToTaskNonce={actionTaskRevealNonce}
+            on:toggle={handleActionTaskToggle}
+            on:revealHandled={handleActionTaskRevealHandled}
+          />
+        {/key}
 
         <div class="task-creator">
           <input bind:value={actionTaskText} placeholder="新建任务" type="text" />
