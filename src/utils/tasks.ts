@@ -2,6 +2,11 @@ import type { ManagedTask, TaskBlockType } from "../types";
 
 const TASK_PATTERN =
   /^- \[( |x)\] (.*?)(?:\s*(?:<!--\s*nexus:task-id=([A-Za-z0-9-]+)\s*-->|(\^[A-Za-z0-9-]+)))?\s*$/;
+const TASK_START_PATTERN = /^- \[( |x)\]\s+/;
+
+function normalizeTaskText(text: string): string {
+  return text.trim().replace(/\s*\r?\n\s*/g, " ");
+}
 
 export function renderTaskLine(input: {
   completed?: boolean;
@@ -9,7 +14,7 @@ export function renderTaskLine(input: {
   taskId: string;
 }): string {
   const marker = input.completed ? "x" : " ";
-  return `- [${marker}] ${input.text.trim()} ^${input.taskId}`;
+  return `- [${marker}] ${normalizeTaskText(input.text)} ^${input.taskId}`;
 }
 
 export function parseTaskLines(input: {
@@ -19,6 +24,35 @@ export function parseTaskLines(input: {
   goalName?: string;
 }): ManagedTask[] {
   const tasks: ManagedTask[] = [];
+  let pendingLines: string[] = [];
+
+  function flushPendingTask(discardInvalid = false): boolean {
+    if (pendingLines.length === 0) {
+      return false;
+    }
+
+    const joinedLine = pendingLines.map((line) => line.trim()).filter(Boolean).join(" ");
+
+    const match = joinedLine.match(TASK_PATTERN);
+    const taskId = match?.[3] ?? match?.[4]?.slice(1);
+    if (!match || !taskId) {
+      if (discardInvalid) {
+        pendingLines = [];
+      }
+      return false;
+    }
+
+    pendingLines = [];
+    tasks.push({
+      id: taskId,
+      text: normalizeTaskText(match[2]),
+      completed: match[1] === "x",
+      targetPath: input.targetPath,
+      blockType: input.blockType,
+      goalName: input.goalName
+    });
+    return true;
+  }
 
   for (const rawLine of input.body.split("\n")) {
     const line = rawLine.trim();
@@ -26,21 +60,22 @@ export function parseTaskLines(input: {
       continue;
     }
 
-    const match = line.match(TASK_PATTERN);
-    const taskId = match?.[3] ?? match?.[4]?.slice(1);
-    if (!match || !taskId) {
+    if (TASK_START_PATTERN.test(line)) {
+      flushPendingTask(true);
+      pendingLines = [line];
+      flushPendingTask();
       continue;
     }
 
-    tasks.push({
-      id: taskId,
-      text: match[2].trim(),
-      completed: match[1] === "x",
-      targetPath: input.targetPath,
-      blockType: input.blockType,
-      goalName: input.goalName
-    });
+    if (pendingLines.length === 0) {
+      continue;
+    }
+
+    pendingLines.push(line);
+    flushPendingTask();
   }
+
+  flushPendingTask(true);
 
   return tasks;
 }
