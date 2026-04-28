@@ -47,10 +47,10 @@ export class NexusSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("日常任务默认目标")
-      .setDesc("选择写入当日日记，还是独立的全局待办文件。")
+      .setDesc("选择写入每日任务笔记，还是独立的全局待办文件。")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("daily-note", "Daily Note")
+          .addOption("daily-note", "每日任务笔记")
           .addOption("global-file", "全局待办文件")
           .setValue(this.plugin.settings.lifeTaskTarget)
           .onChange(async (value) => {

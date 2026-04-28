@@ -52,7 +52,7 @@ Spark Track 是一个运行在 Obsidian 里的插件，目标不是再做一个�
 
 日常任务可以写入：
 
-- 当日 Daily Note
+- 独立的每日任务 Markdown 文件，例如 `Daily/Actions/2026-04-28-actions.md`
 - 单独的全局待办 Markdown 文件
 
 目标任务则写入目标索引文件里的受控区块。任务本质上仍然是 Markdown 任务行，插件只是负责增删改查和状态同步。
@@ -93,9 +93,11 @@ Spark Track 是一个运行在 Obsidian 里的插件，目标不是再做一个�
 
 Spark Track 的一个关键思路，是把数据尽量写回用户自己的 Markdown 文件，而不是维护独立数据库。
 
-### 3.1 Daily Note
+### 3.1 Daily Note 与每日任务文件
 
-capture 和部分日常任务会写进 Daily Note。
+capture 会写进 Daily Note；默认日常任务会写进独立的每日任务文件，路径类似：
+
+- `Daily/Actions/YYYY-MM-DD-actions.md`
 
 插件会优先读取：
 

@@ -17,7 +17,7 @@ export class TaskService {
   ) {}
 
   async listLifeTasks(): Promise<ManagedTask[]> {
-    const file = await this.resolveLifeTaskFile(false, { preferActiveNote: true });
+    const file = await this.resolveLifeTaskFile(false);
     if (!file) {
       return [];
     }
@@ -35,7 +35,7 @@ export class TaskService {
       return null;
     }
 
-    const file = await this.resolveLifeTaskFile(true, { preferActiveNote: true });
+    const file = await this.resolveLifeTaskFile(true);
     if (!file) {
       throw new Error("无法定位日常任务文件。");
     }
@@ -226,10 +226,7 @@ export class TaskService {
     });
   }
 
-  private async resolveLifeTaskFile(
-    create: boolean,
-    options: { preferActiveNote?: boolean } = {}
-  ): Promise<TFile | null> {
+  private async resolveLifeTaskFile(create: boolean): Promise<TFile | null> {
     if (this.plugin.settings.lifeTaskTarget === "global-file") {
       const targetPath = ensureMdExtension(
         assertSafeMarkdownPath(this.plugin.app, this.plugin.settings.globalTodoPath, "全局待办路径")
@@ -246,29 +243,7 @@ export class TaskService {
       return ensureMarkdownFile(this.plugin.app, targetPath, "");
     }
 
-    if (options.preferActiveNote) {
-      const activeFile = await this.resolveActiveLifeTaskFile();
-      if (activeFile) {
-        return activeFile;
-      }
-    }
-
-    return this.dailyNoteService.getDailyNoteFile(new Date(), create);
-  }
-
-  private async resolveActiveLifeTaskFile(): Promise<TFile | null> {
-    const file = this.plugin.getActiveMarkdownFile();
-    if (!(file instanceof TFile) || file.extension !== "md") {
-      return null;
-    }
-
-    const preferredPath = this.dailyNoteService.getPreferredPath(new Date());
-    if (file.path === preferredPath) {
-      return file;
-    }
-
-    const content = await this.plugin.app.vault.cachedRead(file);
-    return readBlock(content, CONTROLLED_BLOCKS.lifeTasks) === null ? null : file;
+    return this.dailyNoteService.getDailyLifeTaskFile(new Date(), create);
   }
 
   private getSpec(blockType: TaskBlockType) {

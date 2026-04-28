@@ -27,8 +27,34 @@ export class DailyNoteService {
     return normalizePath(safeFolder ? `${safeFolder}/${fileName}` : fileName);
   }
 
+  getDailyLifeTaskPath(date: Date = new Date()): string {
+    const config = this.resolveDailyNoteConfig();
+    const fileName = `${formatDateToken(date, config.format)}-actions.md`;
+    const safeFolder = config.folder
+      ? assertSafeFolderPath(this.plugin.app, config.folder, "Daily task folder")
+      : "";
+    const taskFolder = safeFolder ? `${safeFolder}/Actions` : "Actions";
+
+    return normalizePath(`${taskFolder}/${fileName}`);
+  }
+
   async getDailyNoteFile(date: Date = new Date(), create = false): Promise<TFile | null> {
     const path = this.getPreferredPath(date);
+    const existing = this.plugin.app.vault.getAbstractFileByPath(path);
+
+    if (existing instanceof TFile) {
+      return existing;
+    }
+
+    if (!create) {
+      return null;
+    }
+
+    return ensureMarkdownFile(this.plugin.app, path, "");
+  }
+
+  async getDailyLifeTaskFile(date: Date = new Date(), create = false): Promise<TFile | null> {
+    const path = this.getDailyLifeTaskPath(date);
     const existing = this.plugin.app.vault.getAbstractFileByPath(path);
 
     if (existing instanceof TFile) {
