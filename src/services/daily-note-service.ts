@@ -68,6 +68,29 @@ export class DailyNoteService {
     return ensureMarkdownFile(this.plugin.app, path, "");
   }
 
+  async listRecentDailyLifeTaskFiles(): Promise<TFile[]> {
+    const files: TFile[] = [];
+    const seenPaths = new Set<string>();
+
+    const todayTaskFile = await this.getDailyLifeTaskFile(new Date(), false);
+    if (todayTaskFile) {
+      files.push(todayTaskFile);
+      seenPaths.add(todayTaskFile.path);
+    }
+
+    for (let offset = 0; offset < CAPTURE_LOOKBACK_DAYS; offset += 1) {
+      const dailyFile = await this.getDailyNoteFile(this.shiftDate(new Date(), -offset), false);
+      if (!dailyFile || seenPaths.has(dailyFile.path)) {
+        continue;
+      }
+
+      files.push(dailyFile);
+      seenPaths.add(dailyFile.path);
+    }
+
+    return files;
+  }
+
   async appendCapture(text: string, chipIds: string[]): Promise<void> {
     const normalizedText = text.trim();
     if (!normalizedText) {

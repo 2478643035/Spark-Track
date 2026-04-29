@@ -17,12 +17,23 @@ export class TaskService {
   ) {}
 
   async listLifeTasks(): Promise<ManagedTask[]> {
-    const file = await this.resolveLifeTaskFile(false);
-    if (!file) {
-      return [];
+    if (this.plugin.settings.lifeTaskTarget === "global-file") {
+      const file = await this.resolveLifeTaskFile(false);
+      return file ? this.readTasksFromFile(file, "life") : [];
     }
 
-    return this.readTasksFromFile(file, "life");
+    const files = await this.dailyNoteService.listRecentDailyLifeTaskFiles();
+    const tasksById = new Map<string, ManagedTask>();
+
+    for (const file of files) {
+      for (const task of await this.readTasksFromFile(file, "life")) {
+        if (!tasksById.has(task.id)) {
+          tasksById.set(task.id, task);
+        }
+      }
+    }
+
+    return Array.from(tasksById.values());
   }
 
   async createLifeTask(

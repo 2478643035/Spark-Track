@@ -98,6 +98,7 @@ function createService(plugin: NexusCommandPlugin): { dailyNoteService: DailyNot
 
 export async function run(): Promise<void> {
   await doesNotReadLifeTasksFromStaleActiveNote();
+  await readsLegacyLifeTasksFromRecentDailyNote();
   await createsLifeTasksInSeparateDailyActionNote();
 }
 
@@ -113,6 +114,22 @@ async function doesNotReadLifeTasksFromStaleActiveNote(): Promise<void> {
   const tasks = await taskService.listLifeTasks();
 
   assert.deepEqual(tasks, []);
+}
+
+async function readsLegacyLifeTasksFromRecentDailyNote(): Promise<void> {
+  const todayToken = formatDateToken(new Date(), DEFAULT_SETTINGS.dailyNoteFormat);
+  const plugin = createPlugin({
+    files: {
+      [`Daily/${todayToken}.md`]: "## Nexus Actions\n\n- [ ] legacy task ^t-legacy\n"
+    }
+  });
+  const { taskService } = createService(plugin);
+
+  const tasks = await taskService.listLifeTasks();
+
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].id, "t-legacy");
+  assert.equal(tasks[0].targetPath, normalizePath(`Daily/${todayToken}.md`));
 }
 
 async function createsLifeTasksInSeparateDailyActionNote(): Promise<void> {
