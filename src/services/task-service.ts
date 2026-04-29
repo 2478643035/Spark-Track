@@ -3,7 +3,7 @@ import { CONTROLLED_BLOCKS } from "../constants";
 import type NexusCommandPlugin from "../main";
 import type { ManagedTask, TaskBlockType } from "../types";
 import { readBlock, replaceBlock } from "../utils/blocks";
-import { createTaskId } from "../utils/date";
+import { createTaskId, getTimeStamp } from "../utils/date";
 import { ensureMdExtension } from "../utils/paths";
 import { assertSafeMarkdownPath } from "../utils/safe-write-paths";
 import { hasTaskId, parseTaskLines, renderTaskLine, toggleTaskLine } from "../utils/tasks";
@@ -52,7 +52,7 @@ export class TaskService {
     }
 
     const suffix = sourceNoteName ? ` [来源：[[${sourceNoteName}]]]` : "";
-    const taskText = `${normalizedText}${suffix}`;
+    const taskText = `${normalizedText} [${getTimeStamp(new Date())}]${suffix}`;
     const line = renderTaskLine({
       text: taskText,
       taskId
@@ -254,7 +254,7 @@ export class TaskService {
       return ensureMarkdownFile(this.plugin.app, targetPath, "");
     }
 
-    return this.dailyNoteService.getDailyLifeTaskFile(new Date(), create);
+    return this.dailyNoteService.getDailyLifeTaskFile(create);
   }
 
   private getSpec(blockType: TaskBlockType) {

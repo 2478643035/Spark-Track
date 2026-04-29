@@ -15,6 +15,8 @@ type DailyNoteConfig = {
   format: string;
 };
 
+const DAILY_LIFE_TASK_FILE_NAME = "日常任务.md";
+
 export class DailyNoteService {
   constructor(private readonly plugin: NexusCommandPlugin) {}
 
@@ -27,15 +29,8 @@ export class DailyNoteService {
     return normalizePath(safeFolder ? `${safeFolder}/${fileName}` : fileName);
   }
 
-  getDailyLifeTaskPath(date: Date = new Date()): string {
-    const config = this.resolveDailyNoteConfig();
-    const fileName = `${formatDateToken(date, config.format)}-actions.md`;
-    const safeFolder = config.folder
-      ? assertSafeFolderPath(this.plugin.app, config.folder, "Daily task folder")
-      : "";
-    const taskFolder = safeFolder ? `${safeFolder}/Actions` : "Actions";
-
-    return normalizePath(`${taskFolder}/${fileName}`);
+  getDailyLifeTaskPath(): string {
+    return normalizePath(`${this.getDailyLifeTaskFolder()}/${DAILY_LIFE_TASK_FILE_NAME}`);
   }
 
   async getDailyNoteFile(date: Date = new Date(), create = false): Promise<TFile | null> {
@@ -53,8 +48,8 @@ export class DailyNoteService {
     return ensureMarkdownFile(this.plugin.app, path, "");
   }
 
-  async getDailyLifeTaskFile(date: Date = new Date(), create = false): Promise<TFile | null> {
-    const path = this.getDailyLifeTaskPath(date);
+  async getDailyLifeTaskFile(create = false): Promise<TFile | null> {
+    const path = this.getDailyLifeTaskPath();
     const existing = this.plugin.app.vault.getAbstractFileByPath(path);
 
     if (existing instanceof TFile) {
@@ -72,20 +67,25 @@ export class DailyNoteService {
     const files: TFile[] = [];
     const seenPaths = new Set<string>();
 
-    const todayTaskFile = await this.getDailyLifeTaskFile(new Date(), false);
-    if (todayTaskFile) {
-      files.push(todayTaskFile);
-      seenPaths.add(todayTaskFile.path);
+    const singleTaskFile = await this.getDailyLifeTaskFile(false);
+    if (singleTaskFile) {
+      files.push(singleTaskFile);
+      seenPaths.add(singleTaskFile.path);
     }
 
     for (let offset = 0; offset < CAPTURE_LOOKBACK_DAYS; offset += 1) {
-      const dailyFile = await this.getDailyNoteFile(this.shiftDate(new Date(), -offset), false);
-      if (!dailyFile || seenPaths.has(dailyFile.path)) {
-        continue;
+      const date = this.shiftDate(new Date(), -offset);
+      const datedTaskFile = await this.getDatedDailyLifeTaskFile(date, false);
+      if (datedTaskFile && !seenPaths.has(datedTaskFile.path)) {
+        files.push(datedTaskFile);
+        seenPaths.add(datedTaskFile.path);
       }
 
-      files.push(dailyFile);
-      seenPaths.add(dailyFile.path);
+      const dailyFile = await this.getDailyNoteFile(date, false);
+      if (dailyFile && !seenPaths.has(dailyFile.path)) {
+        files.push(dailyFile);
+        seenPaths.add(dailyFile.path);
+      }
     }
 
     return files;
@@ -288,5 +288,34 @@ export class DailyNoteService {
     const shifted = new Date(date);
     shifted.setDate(shifted.getDate() + offsetDays);
     return shifted;
+  }
+
+  private getDailyLifeTaskFolder(): string {
+    const config = this.resolveDailyNoteConfig();
+    const safeFolder = config.folder
+      ? assertSafeFolderPath(this.plugin.app, config.folder, "Daily task folder")
+      : "";
+    return safeFolder ? `${safeFolder}/Actions` : "Actions";
+  }
+
+  private getDatedDailyLifeTaskPath(date: Date): string {
+    const config = this.resolveDailyNoteConfig();
+    const fileName = `${formatDateToken(date, config.format)}-actions.md`;
+    return normalizePath(`${this.getDailyLifeTaskFolder()}/${fileName}`);
+  }
+
+  private async getDatedDailyLifeTaskFile(date: Date, create = false): Promise<TFile | null> {
+    const path = this.getDatedDailyLifeTaskPath(date);
+    const existing = this.plugin.app.vault.getAbstractFileByPath(path);
+
+    if (existing instanceof TFile) {
+      return existing;
+    }
+
+    if (!create) {
+      return null;
+    }
+
+    return ensureMarkdownFile(this.plugin.app, path, "");
   }
 }

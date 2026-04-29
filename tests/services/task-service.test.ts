@@ -99,7 +99,9 @@ function createService(plugin: NexusCommandPlugin): { dailyNoteService: DailyNot
 export async function run(): Promise<void> {
   await doesNotReadLifeTasksFromStaleActiveNote();
   await readsLegacyLifeTasksFromRecentDailyNote();
-  await createsLifeTasksInSeparateDailyActionNote();
+  await readsLegacyLifeTasksFromRecentDailyActionNote();
+  await createsLifeTasksInSingleDailyActionNoteWithTime();
+  await togglesCreatedLifeTaskInSingleDailyActionNote();
 }
 
 async function doesNotReadLifeTasksFromStaleActiveNote(): Promise<void> {
@@ -132,15 +134,49 @@ async function readsLegacyLifeTasksFromRecentDailyNote(): Promise<void> {
   assert.equal(tasks[0].targetPath, normalizePath(`Daily/${todayToken}.md`));
 }
 
-async function createsLifeTasksInSeparateDailyActionNote(): Promise<void> {
+async function readsLegacyLifeTasksFromRecentDailyActionNote(): Promise<void> {
+  const todayToken = formatDateToken(new Date(), DEFAULT_SETTINGS.dailyNoteFormat);
+  const plugin = createPlugin({
+    files: {
+      [`Daily/Actions/${todayToken}-actions.md`]: "## Nexus Actions\n\n- [ ] dated action ^t-dated\n"
+    }
+  });
+  const { taskService } = createService(plugin);
+
+  const tasks = await taskService.listLifeTasks();
+
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].id, "t-dated");
+  assert.equal(tasks[0].targetPath, normalizePath(`Daily/Actions/${todayToken}-actions.md`));
+}
+
+async function createsLifeTasksInSingleDailyActionNoteWithTime(): Promise<void> {
   const plugin = createPlugin();
   const { dailyNoteService, taskService } = createService(plugin);
-  const todayToken = formatDateToken(new Date(), DEFAULT_SETTINGS.dailyNoteFormat);
-  const expectedTaskPath = normalizePath(`${DEFAULT_SETTINGS.dailyNoteFolder}/Actions/${todayToken}-actions.md`);
+  const expectedTaskPath = normalizePath(`${DEFAULT_SETTINGS.dailyNoteFolder}/Actions/日常任务.md`);
 
   const created = await taskService.createLifeTask("buy milk", "Inbox", "t-new");
 
   assert.equal(created?.targetPath, expectedTaskPath);
   assert.equal((plugin.app.vault as unknown as FakeVault).hasPath(dailyNoteService.getPreferredPath(new Date())), false);
-  assert.match((plugin.app.vault as unknown as FakeVault).readPath(expectedTaskPath), /- \[ \] buy milk .* \^t-new/);
+  assert.match(
+    (plugin.app.vault as unknown as FakeVault).readPath(expectedTaskPath),
+    /- \[ \] buy milk \[\d{2}:\d{2}\] .* \^t-new/
+  );
+}
+
+async function togglesCreatedLifeTaskInSingleDailyActionNote(): Promise<void> {
+  const plugin = createPlugin();
+  const { taskService } = createService(plugin);
+  const expectedTaskPath = normalizePath(`${DEFAULT_SETTINGS.dailyNoteFolder}/Actions/日常任务.md`);
+
+  const created = await taskService.createLifeTask("sync note", null, "t-sync");
+
+  assert.equal(created?.targetPath, expectedTaskPath);
+  await taskService.toggleTask(created!, true);
+
+  assert.match(
+    (plugin.app.vault as unknown as FakeVault).readPath(expectedTaskPath),
+    /- \[x\] sync note \[\d{2}:\d{2}\] \^t-sync/
+  );
 }
