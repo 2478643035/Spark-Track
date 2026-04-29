@@ -330,6 +330,20 @@ button:disabled {
   padding-right: 4px;
 }
 
+.capture-list__disclosure {
+  width: 100%;
+  justify-content: center;
+  border-style: dashed;
+  border-radius: 8px;
+  background: rgba(255, 255, 250, 0.42);
+  color: var(--nexus-accent);
+  font-size: 0.84rem;
+}
+
+.capture-list__disclosure--muted {
+  color: var(--nexus-muted);
+}
+
 .capture-item,
 .radar-card {
   border: 1px solid var(--nexus-border);

@@ -14,6 +14,7 @@
     ReviewAction
   } from "../types";
   import { createTaskId } from "../utils/date";
+  import { createCaptureInboxSections } from "../utils/captures";
   import AccordionSection from "./components/AccordionSection.svelte";
   import GoalCard from "./components/GoalCard.svelte";
   import TaskList from "./components/TaskList.svelte";
@@ -38,6 +39,8 @@
   let radarOpen = false;
   let reviewOpen = false;
   let goalsOpen = false;
+  let olderCapturesOpen = false;
+  let processedCapturesOpen = false;
   let expandedGoals = new Set<string>();
   let goalModalOpen = false;
   let goalNameText = "";
@@ -76,12 +79,12 @@
   $: blockers = state?.blockers ?? [];
   $: suggestions = state?.suggestions ?? [];
   $: review = state?.review ?? null;
-  $: pendingCaptureCount = captures.filter((capture) => capture.triageStatus === "pending").length;
-  $: sortedCaptures = [...captures].sort((left, right) => {
-    const leftDone = left.triageStatus === "pending" ? 0 : 1;
-    const rightDone = right.triageStatus === "pending" ? 0 : 1;
-    return leftDone - rightDone;
-  });
+  $: captureInbox = createCaptureInboxSections(captures, { revealOlderPending: olderCapturesOpen });
+  $: pendingCaptureCount = captureInbox.pendingCount;
+  $: displayCaptures = [
+    ...captureInbox.visiblePendingCaptures,
+    ...(processedCapturesOpen ? captureInbox.processedCaptures : [])
+  ];
   $: selectedGoal = activeGoals.find((goal) => goal.indexPath === selectedGoalIndexPath) ?? null;
   $: modalSelectedGoal = activeGoals.find((goal) => goal.indexPath === modalGoalIndexPath) ?? null;
   $: commandSummary = summarizeCommand(captureText);
@@ -513,10 +516,10 @@
         </div>
 
         <div class="capture-list">
-          {#if sortedCaptures.length === 0}
+          {#if displayCaptures.length === 0}
             <p class="task-list__empty">暂无收件。</p>
           {:else}
-            {#each sortedCaptures as capture (capture.id)}
+            {#each displayCaptures as capture (capture.id)}
               <article class:triaged={capture.triageStatus !== "pending"} class="capture-item">
                 <div class="capture-item__meta">
                   <div>
@@ -580,6 +583,34 @@
                 </div>
               </article>
             {/each}
+          {/if}
+
+          {#if captureInbox.hiddenPendingCaptures.length > 0}
+            <button
+              class="capture-list__disclosure"
+              type="button"
+              on:click={() => (olderCapturesOpen = true)}
+            >
+              展开旧闪念 · 还有 {captureInbox.hiddenPendingCaptures.length} 条待分拣
+            </button>
+          {:else if olderCapturesOpen && captureInbox.pendingCount > 1}
+            <button
+              class="capture-list__disclosure"
+              type="button"
+              on:click={() => (olderCapturesOpen = false)}
+            >
+              收起旧闪念
+            </button>
+          {/if}
+
+          {#if captureInbox.processedCount > 0}
+            <button
+              class="capture-list__disclosure capture-list__disclosure--muted"
+              type="button"
+              on:click={() => (processedCapturesOpen = !processedCapturesOpen)}
+            >
+              {processedCapturesOpen ? "收起已处理记录" : `查看已处理记录 · ${captureInbox.processedCount} 条`}
+            </button>
           {/if}
         </div>
       </div>

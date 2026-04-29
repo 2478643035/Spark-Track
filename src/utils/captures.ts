@@ -5,6 +5,31 @@ const CAPTURE_META_PATTERN =
   /^<!--\s*nexus:capture-meta\s+id=([A-Za-z0-9-]+)\s+status=([A-Za-z0-9-]+)\s*-->$/;
 const CAPTURE_HEADER_PATTERN = /^\[!note\]\s+(.+?)(?:\s+\^([A-Za-z0-9-]+))?$/;
 
+export interface CaptureInboxSections {
+  visiblePendingCaptures: CaptureEntry[];
+  hiddenPendingCaptures: CaptureEntry[];
+  processedCaptures: CaptureEntry[];
+  pendingCount: number;
+  processedCount: number;
+}
+
+export function createCaptureInboxSections(
+  captures: CaptureEntry[],
+  options: { revealOlderPending?: boolean } = {}
+): CaptureInboxSections {
+  const sortedCaptures = [...captures].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  const pendingCaptures = sortedCaptures.filter((capture) => capture.triageStatus === "pending");
+  const processedCaptures = sortedCaptures.filter((capture) => capture.triageStatus !== "pending");
+
+  return {
+    visiblePendingCaptures: options.revealOlderPending ? pendingCaptures : pendingCaptures.slice(0, 1),
+    hiddenPendingCaptures: options.revealOlderPending ? [] : pendingCaptures.slice(1),
+    processedCaptures,
+    pendingCount: pendingCaptures.length,
+    processedCount: processedCaptures.length
+  };
+}
+
 function normalizeStatus(value: string | undefined): CaptureTriageStatus {
   switch (value) {
     case "kept":
